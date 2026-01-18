@@ -22,6 +22,8 @@ build/
 
 # Database
 *.db
+*.db-shm
+*.db-wal
 *.sqlite
 
 # Logs
