@@ -1,0 +1,94 @@
+import os, asyncio, sqlite3, time
+from aiogram import Bot
+from telethon import TelegramClient
+from telethon.errors import ChatAdminRequiredError, UserAdminInvalidError
+from telethon.tl.types import ChannelParticipantsSearch
+
+BOT_TOKEN     = os.getenv("BOT_TOKEN")
+GROUP_ID      = int(os.getenv("GROUP_ID"))   # -100...
+DB_PATH       = os.getenv("DB_PATH", "bot.db")
+TG_API_ID     = int(os.getenv("TG_API_ID"))
+TG_API_HASH   = os.getenv("TG_API_HASH")
+
+def db_is_active(uid: int, now_ts: int) -> bool:
+    con = sqlite3.connect(DB_PATH)
+    cur = con.cursor()
+    cur.execute("SELECT expires_at FROM users WHERE user_id=?", (uid,))
+    row = cur.fetchone()
+    con.close()
+    if not row:
+        return False
+    exp = row[0] or 0
+    return exp > now_ts
+
+async def main():
+    now_ts = int(time.time())
+    # 1) Собираем участников через Telethon
+    client = TelegramClient("session_audit", TG_API_ID, TG_API_HASH)
+    await client.start()
+    # 2) Для бана используем Bot API (aiogram)
+    bot = Bot(BOT_TOKEN)
+
+    # Соберём всех (поиск пустой строкой и пагинация)
+    members = []
+    offset = 0
+    limit = 200
+    while True:
+        batch = await client.get_participants(GROUP_ID, filter=ChannelParticipantsSearch(""), offset=offset, limit=limit)
+        if not batch:
+            break
+        members.extend(batch)
+        offset += len(batch)
+
+    total = len(members)
+    not_active = []   # нет записи в БД или expires_at <= now
+    admins = []
+
+    # Узнаём админов, чтобы не трогать
+    try:
+        admins = [a.user_id for a in await client.get_participants(GROUP_ID, filter=ChannelParticipantsSearch(""), limit=0)]
+    except Exception:
+        pass  # необязательный шаг; дальше будем ловить ошибки на бане
+
+    for m in members:
+        uid = m.id
+        # пропускаем очевидных админов/создателей/ботов
+        if getattr(m, "bot", False):
+            continue
+        # проверка в БД
+        if not db_is_active(uid, now_ts):
+            not_active.append(uid)
+
+    print(f"Всего в чате: {total}")
+    print(f"Неактивных по БД: {len(not_active)}")
+    if not not_active:
+        await client.disconnect()
+        await bot.session.close()
+        return
+
+    print("Dry-run список (первые 50):", not_active[:50])
+    ans = input("Кикнуть всех из списка? (yes/NO): ").strip().lower()
+    if ans != "yes":
+        print("Отменено.")
+        await client.disconnect()
+        await bot.session.close()
+        return
+
+    kicked, failed = 0, 0
+    for uid in not_active:
+        try:
+            # «мягкий кик»: бан на минуту и сразу анбан
+            await bot.ban_chat_member(GROUP_ID, uid, until_date=now_ts + 60)
+            await bot.unban_chat_member(GROUP_ID, uid)
+            kicked += 1
+        except Exception as e:
+            # админа/владельца кикнуть нельзя — будет ошибка
+            failed += 1
+            print(f"Не удалось кикнуть {uid}: {e}")
+
+    print(f"Готово. Кикнули: {kicked}, не смогли: {failed}")
+    await client.disconnect()
+    await bot.session.close()
+
+if __name__ == "__main__":
+    asyncio.run(main())
