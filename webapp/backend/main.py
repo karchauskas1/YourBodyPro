@@ -198,9 +198,15 @@ app = FastAPI(
 )
 
 # CORS для Telegram WebApp
+ALLOWED_ORIGINS = [
+    "https://your-body-pro.vercel.app",
+    "http://localhost:3000",
+    "http://localhost:5173",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # В продакшене ограничить
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
