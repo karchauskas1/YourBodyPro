@@ -7,10 +7,41 @@ interface LayoutProps {
   className?: string;
 }
 
+// Inline SVG pattern for food ingredients
+const FoodPatternSVG = () => (
+  <svg
+    className="absolute inset-0 w-full h-full pointer-events-none"
+    style={{ opacity: 0.04 }}
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <defs>
+      <pattern id="food-pattern" x="0" y="0" width="120" height="120" patternUnits="userSpaceOnUse">
+        {/* Apple */}
+        <path d="M30 20c-5 0-8 3-8 8s3 10 8 10 8-5 8-10-3-8-8-8zm0-5c1-3 3-5 5-5" fill="none" stroke="currentColor" strokeWidth="1.5"/>
+        {/* Carrot */}
+        <path d="M80 25l-15 25m15-25c2-1 4-1 5 1m-5-1c-2-1-4-1-5 1" fill="none" stroke="currentColor" strokeWidth="1.5"/>
+        {/* Leaf */}
+        <path d="M20 80c0-8 6-15 15-15s15 7 15 15c-5-3-10-5-15-5s-10 2-15 5z" fill="none" stroke="currentColor" strokeWidth="1.5"/>
+        {/* Egg */}
+        <ellipse cx="90" cy="85" rx="8" ry="10" fill="none" stroke="currentColor" strokeWidth="1.5"/>
+        {/* Berry */}
+        <circle cx="60" cy="60" r="6" fill="none" stroke="currentColor" strokeWidth="1.5"/>
+        <circle cx="68" cy="55" r="5" fill="none" stroke="currentColor" strokeWidth="1.5"/>
+        <circle cx="65" cy="65" r="4" fill="none" stroke="currentColor" strokeWidth="1.5"/>
+      </pattern>
+    </defs>
+    <rect width="100%" height="100%" fill="url(#food-pattern)" />
+  </svg>
+);
+
 export function Layout({ children, className = '' }: LayoutProps) {
   return (
-    <div className={`min-h-screen pb-safe ${className}`}>
-      <main className="max-w-lg mx-auto px-4 py-6">
+    <div className={`min-h-screen pb-safe relative ${className}`}>
+      {/* Background pattern */}
+      <div className="fixed inset-0 overflow-hidden" style={{ color: 'var(--text-primary)' }}>
+        <FoodPatternSVG />
+      </div>
+      <main className="max-w-lg mx-auto px-4 py-6 relative z-10">
         {children}
       </main>
     </div>

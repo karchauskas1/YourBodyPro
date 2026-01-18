@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { Layout, Card, Button } from '../components/Layout';
 import { useStore } from '../store/useStore';
 import { useTelegram } from '../hooks/useTelegram';
+import { useTheme, themeOptions, colorSchemeOptions } from '../hooks/useTheme';
 import { api } from '../api/client';
 import type { Goal, TrainingType, ActivityLevel } from '../types';
 import {
@@ -16,13 +17,15 @@ import {
   Calendar,
   Clock,
   Check,
-  RefreshCw
+  Palette,
+  Sun
 } from 'lucide-react';
 
 export function Settings() {
   const navigate = useNavigate();
   const { haptic } = useTelegram();
   const { profile, setProfile } = useStore();
+  const { themeMode, colorScheme, setThemeMode, setColorScheme } = useTheme();
 
   const [isSaving, setIsSaving] = useState(false);
   const [localSettings, setLocalSettings] = useState({
@@ -77,13 +80,13 @@ export function Settings() {
   };
 
   const goals: { value: Goal; label: string }[] = [
-    { value: 'maintain', label: 'Поддержание' },
     { value: 'lose', label: 'Снижение' },
+    { value: 'maintain', label: 'Поддержание' },
     { value: 'gain', label: 'Набор' },
   ];
 
   const trainingTypes: { value: TrainingType; label: string }[] = [
-    { value: 'marathon', label: 'Марафон' },
+    { value: 'marathon', label: 'С Настей' },
     { value: 'own', label: 'Свои' },
     { value: 'mixed', label: 'Смешанный' },
   ];
@@ -363,18 +366,68 @@ export function Settings() {
           </Card>
         )}
 
-        {/* Re-run onboarding */}
+        {/* Theme settings */}
         <Card>
-          <button
-            onClick={() => {
-              haptic('light');
-              navigate('/onboarding');
-            }}
-            className="flex items-center gap-3 w-full"
-          >
-            <RefreshCw className="w-5 h-5" style={{ color: 'var(--text-secondary)' }} />
-            <span style={{ color: 'var(--text-secondary)' }}>Пройти онбординг заново</span>
-          </button>
+          <div className="flex items-center gap-2 mb-3">
+            <Palette className="w-5 h-5" style={{ color: 'var(--accent)' }} />
+            <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>
+              Оформление
+            </h3>
+          </div>
+
+          {/* Theme mode */}
+          <p className="text-xs mb-2" style={{ color: 'var(--text-secondary)' }}>
+            Тема
+          </p>
+          <div className="flex gap-2 mb-4">
+            {themeOptions.map((option) => (
+              <button
+                key={option.value}
+                onClick={() => {
+                  haptic('selection');
+                  setThemeMode(option.value);
+                }}
+                className="flex-1 py-2 px-3 rounded-xl text-sm font-medium transition-all flex items-center justify-center gap-1"
+                style={{
+                  background:
+                    themeMode === option.value ? 'var(--accent)' : 'var(--bg-secondary)',
+                  color: themeMode === option.value ? 'white' : 'var(--text-primary)',
+                }}
+              >
+                {option.value === 'light' && <Sun className="w-4 h-4" />}
+                {option.value === 'dark' && <Moon className="w-4 h-4" />}
+                {option.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Color scheme */}
+          <p className="text-xs mb-2" style={{ color: 'var(--text-secondary)' }}>
+            Цветовая схема
+          </p>
+          <div className="flex gap-2">
+            {colorSchemeOptions.map((option) => (
+              <button
+                key={option.value}
+                onClick={() => {
+                  haptic('selection');
+                  setColorScheme(option.value);
+                }}
+                className="flex-1 py-2 px-3 rounded-xl text-sm font-medium transition-all flex items-center justify-center gap-2"
+                style={{
+                  background:
+                    colorScheme === option.value ? 'var(--accent)' : 'var(--bg-secondary)',
+                  color: colorScheme === option.value ? 'white' : 'var(--text-primary)',
+                }}
+              >
+                <div
+                  className="w-4 h-4 rounded-full"
+                  style={{ background: option.color }}
+                />
+                {option.label}
+              </button>
+            ))}
+          </div>
         </Card>
 
         {/* Save button */}

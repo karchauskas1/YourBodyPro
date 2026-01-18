@@ -5,14 +5,15 @@ import { useNavigate } from 'react-router-dom';
 import { Layout, Card, Button } from '../components/Layout';
 import { useTelegram } from '../hooks/useTelegram';
 import { api } from '../api/client';
-import { Camera, Type, X, Check, ArrowLeft } from 'lucide-react';
+import { Camera, Type, X, Check, ArrowLeft, ImageIcon } from 'lucide-react';
 
 type InputMode = 'choice' | 'photo' | 'text';
 
 export function AddFood() {
   const navigate = useNavigate();
   const { haptic } = useTelegram();
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
 
   const [mode, setMode] = useState<InputMode>('choice');
   const [text, setText] = useState('');
@@ -91,11 +92,12 @@ export function AddFood() {
       {/* Choice mode */}
       {mode === 'choice' && (
         <div className="space-y-4 animate-in">
+          {/* Camera */}
           <Card
             className="cursor-pointer"
             onClick={() => {
               haptic('light');
-              fileInputRef.current?.click();
+              cameraInputRef.current?.click();
             }}
           >
             <div className="flex items-center gap-4 py-4">
@@ -116,6 +118,33 @@ export function AddFood() {
             </div>
           </Card>
 
+          {/* Gallery */}
+          <Card
+            className="cursor-pointer"
+            onClick={() => {
+              haptic('light');
+              galleryInputRef.current?.click();
+            }}
+          >
+            <div className="flex items-center gap-4 py-4">
+              <div
+                className="w-14 h-14 rounded-2xl flex items-center justify-center"
+                style={{ background: 'var(--warning-soft)' }}
+              >
+                <ImageIcon className="w-7 h-7" style={{ color: 'var(--warning)' }} />
+              </div>
+              <div>
+                <h3 className="font-semibold text-lg" style={{ color: 'var(--text-primary)' }}>
+                  Выбрать из галереи
+                </h3>
+                <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                  Загрузить существующее фото
+                </p>
+              </div>
+            </div>
+          </Card>
+
+          {/* Text */}
           <Card
             className="cursor-pointer"
             onClick={() => {
@@ -141,11 +170,19 @@ export function AddFood() {
             </div>
           </Card>
 
+          {/* Hidden inputs */}
           <input
-            ref={fileInputRef}
+            ref={cameraInputRef}
             type="file"
             accept="image/*"
             capture="environment"
+            onChange={handlePhotoSelect}
+            className="hidden"
+          />
+          <input
+            ref={galleryInputRef}
+            type="file"
+            accept="image/*"
             onChange={handlePhotoSelect}
             className="hidden"
           />

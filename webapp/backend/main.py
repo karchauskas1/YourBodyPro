@@ -388,6 +388,40 @@ async def delete_food_entry(
     return {"success": True}
 
 
+@app.get("/api/food/calendar/{year}/{month}")
+async def get_food_calendar(
+    year: int,
+    month: int,
+    user: Dict = Depends(get_current_user)
+):
+    """Получить данные о питании за месяц для календаря"""
+    # Определяем начало и конец месяца
+    start_date = datetime(year, month, 1, tzinfo=MSK)
+    if month == 12:
+        end_date = datetime(year + 1, 1, 1, tzinfo=MSK) - timedelta(days=1)
+    else:
+        end_date = datetime(year, month + 1, 1, tzinfo=MSK) - timedelta(days=1)
+
+    # Получаем все записи за месяц
+    days_data = {}
+    current = start_date
+    while current <= end_date:
+        date_str = current.strftime('%Y-%m-%d')
+        entries = await db.get_food_entries_for_date(user['user_id'], date_str)
+        if entries:
+            days_data[date_str] = {
+                'count': len(entries),
+                'entries': entries
+            }
+        current += timedelta(days=1)
+
+    return {
+        'year': year,
+        'month': month,
+        'days': days_data
+    }
+
+
 # --- Sleep Tracker ---
 
 @app.get("/api/sleep/today")
@@ -475,6 +509,38 @@ async def get_summary_by_date(
         await db.save_daily_summary(user['user_id'], date, summary)
 
     return {"date": date, "summary": summary}
+
+
+@app.post("/api/summary/recalculate")
+async def recalculate_summary(user: Dict = Depends(get_current_user)):
+    """Принудительно пересчитать итог за сегодня"""
+    today = datetime.now(MSK).strftime('%Y-%m-%d')
+
+    # Получаем еду за сегодня
+    food_entries = await db.get_food_entries_for_date(user['user_id'], today)
+
+    if not food_entries:
+        return {
+            "date": today,
+            "summary": None,
+            "message": "Нет записей о еде за сегодня"
+        }
+
+    # Получаем профиль пользователя
+    profile = await db.get_user_profile(user['user_id'])
+    user_goal = profile.get('goal', 'maintain') if profile else 'maintain'
+
+    # Генерируем новый итог
+    summary = await generate_daily_summary(
+        food_entries,
+        user_goal,
+        has_training_today=False
+    )
+
+    # Перезаписываем в БД
+    await db.save_daily_summary(user['user_id'], today, summary)
+
+    return {"date": today, "summary": summary, "recalculated": True}
 
 
 # --- Weekly Summary ---

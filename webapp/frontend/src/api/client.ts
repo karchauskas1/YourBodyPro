@@ -154,6 +154,13 @@ export const api = {
       method: 'DELETE',
     }),
 
+  getFoodCalendar: (year: number, month: number) =>
+    apiFetch<{
+      year: number;
+      month: number;
+      days: Record<string, { count: number; entries: FoodEntry[] }>;
+    }>(`/food/calendar/${year}/${month}`),
+
   // Sleep Tracker
   getTodaySleep: () =>
     apiFetch<{ date: string; score: number | null }>('/sleep/today'),
@@ -175,6 +182,12 @@ export const api = {
 
   getSummaryByDate: (date: string) =>
     apiFetch<{ date: string; summary: DailySummary | null }>(`/summary/${date}`),
+
+  recalculateSummary: () =>
+    apiFetch<{ date: string; summary: DailySummary | null; recalculated?: boolean }>(
+      '/summary/recalculate',
+      { method: 'POST' }
+    ),
 
   // Weekly Summary
   getCurrentWeekly: () =>

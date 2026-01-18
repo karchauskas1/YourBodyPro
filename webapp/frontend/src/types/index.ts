@@ -4,6 +4,10 @@ export type Goal = 'maintain' | 'lose' | 'gain';
 export type TrainingType = 'marathon' | 'own' | 'mixed';
 export type ActivityLevel = 'active' | 'medium' | 'calm';
 
+// Theme types
+export type ThemeMode = 'light' | 'dark' | 'system';
+export type ColorScheme = 'peach' | 'neutral' | 'lavender';
+
 export interface UserProfile {
   user_id: number;
   goal: Goal | null;

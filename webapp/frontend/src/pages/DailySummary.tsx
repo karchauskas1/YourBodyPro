@@ -7,12 +7,15 @@ import { ru } from 'date-fns/locale';
 import { Layout, Card, Button, LoadingSpinner, EmptyState } from '../components/Layout';
 import { api } from '../api/client';
 import type { DailySummary as DailySummaryType } from '../types';
-import { ArrowLeft, Sparkles, Utensils, MessageCircle, Lightbulb } from 'lucide-react';
+import { ArrowLeft, Sparkles, Utensils, MessageCircle, Lightbulb, RefreshCw } from 'lucide-react';
+import { useTelegram } from '../hooks/useTelegram';
 
 export function DailySummary() {
   const navigate = useNavigate();
+  const { haptic } = useTelegram();
   const [summary, setSummary] = useState<DailySummaryType | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRecalculating, setIsRecalculating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [noData, setNoData] = useState(false);
 
@@ -38,6 +41,25 @@ export function DailySummary() {
       setError('Не удалось загрузить итог');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleRecalculate = async () => {
+    try {
+      setIsRecalculating(true);
+      haptic('medium');
+
+      const response = await api.recalculateSummary();
+
+      if (response.summary) {
+        setSummary(response.summary);
+        haptic('success');
+      }
+    } catch (err) {
+      console.error('Failed to recalculate summary:', err);
+      haptic('error');
+    } finally {
+      setIsRecalculating(false);
     }
   };
 
@@ -105,22 +127,36 @@ export function DailySummary() {
 
   return (
     <Layout>
-      <div className="flex items-center gap-3 mb-6">
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => navigate(-1)}
+            className="p-2 rounded-xl transition-colors"
+            style={{ background: 'var(--bg-glass)' }}
+          >
+            <ArrowLeft className="w-5 h-5" style={{ color: 'var(--text-primary)' }} />
+          </button>
+          <div>
+            <h1 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
+              Итог дня
+            </h1>
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+              {dateStr}
+            </p>
+          </div>
+        </div>
         <button
-          onClick={() => navigate(-1)}
+          onClick={handleRecalculate}
+          disabled={isRecalculating}
           className="p-2 rounded-xl transition-colors"
           style={{ background: 'var(--bg-glass)' }}
+          title="Пересчитать итог"
         >
-          <ArrowLeft className="w-5 h-5" style={{ color: 'var(--text-primary)' }} />
+          <RefreshCw
+            className={`w-5 h-5 ${isRecalculating ? 'animate-spin' : ''}`}
+            style={{ color: 'var(--accent)' }}
+          />
         </button>
-        <div>
-          <h1 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
-            Итог дня
-          </h1>
-          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-            {dateStr}
-          </p>
-        </div>
       </div>
 
       <div className="space-y-4 animate-in">

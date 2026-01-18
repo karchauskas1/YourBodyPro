@@ -16,7 +16,8 @@ import {
   ChevronRight,
   BarChart3,
   Settings,
-  Sparkles
+  Sparkles,
+  Calendar
 } from 'lucide-react';
 
 // Food entry item
@@ -169,9 +170,10 @@ export function Dashboard() {
                   haptic('light');
                   navigate('/food/add');
                 }}
+                className="whitespace-nowrap"
               >
-                <Plus className="w-4 h-4 mr-1" />
-                Добавить
+                <Plus className="w-4 h-4 mr-1 flex-shrink-0" />
+                <span>Добавить</span>
               </Button>
             </div>
 
@@ -287,6 +289,37 @@ export function Dashboard() {
           </Card>
         )}
 
+        {/* Food Calendar Card */}
+        {profile?.food_tracker_enabled && (
+          <Card
+            className="animate-in"
+            onClick={() => {
+              haptic('light');
+              navigate('/calendar');
+            }}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div
+                  className="w-10 h-10 rounded-xl flex items-center justify-center"
+                  style={{ background: 'var(--warning-soft)' }}
+                >
+                  <Calendar className="w-5 h-5" style={{ color: 'var(--warning)' }} />
+                </div>
+                <div>
+                  <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>
+                    Календарь питания
+                  </h3>
+                  <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                    История по дням
+                  </p>
+                </div>
+              </div>
+              <ChevronRight className="w-5 h-5" style={{ color: 'var(--text-tertiary)' }} />
+            </div>
+          </Card>
+        )}
+
         {/* Weekly Review Card */}
         {profile?.weekly_review_enabled && (
           <Card
@@ -333,6 +366,22 @@ export function Dashboard() {
               }
             />
           )}
+
+        {/* Edit request button */}
+        {(profile?.food_tracker_enabled ||
+          profile?.sleep_tracker_enabled ||
+          profile?.weekly_review_enabled) && (
+          <button
+            onClick={() => {
+              haptic('light');
+              navigate('/settings');
+            }}
+            className="w-full py-3 text-sm font-medium rounded-xl transition-colors mt-2"
+            style={{ color: 'var(--text-secondary)', background: 'var(--bg-glass)' }}
+          >
+            Изменить запрос
+          </button>
+        )}
       </div>
     </Layout>
   );

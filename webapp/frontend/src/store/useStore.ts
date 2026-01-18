@@ -1,7 +1,16 @@
 // Global state store using Zustand
 
 import { create } from 'zustand';
-import type { UserProfile, TelegramUser, DashboardData, Goal, TrainingType, ActivityLevel } from '../types';
+import { persist } from 'zustand/middleware';
+import type { UserProfile, TelegramUser, DashboardData, Goal, TrainingType, ActivityLevel, ThemeMode, ColorScheme } from '../types';
+
+// Helper to get system theme
+const getSystemTheme = (): 'light' | 'dark' => {
+  if (typeof window !== 'undefined' && window.matchMedia) {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  }
+  return 'light';
+};
 
 interface AppState {
   // User & Auth
@@ -14,6 +23,10 @@ interface AppState {
   isDarkMode: boolean;
   isLoading: boolean;
   error: string | null;
+
+  // Theme
+  themeMode: ThemeMode;
+  colorScheme: ColorScheme;
 
   // Onboarding
   onboardingStep: number;
@@ -39,6 +52,8 @@ interface AppState {
   setDarkMode: (isDark: boolean) => void;
   setLoading: (isLoading: boolean) => void;
   setError: (error: string | null) => void;
+  setThemeMode: (mode: ThemeMode) => void;
+  setColorScheme: (scheme: ColorScheme) => void;
   setOnboardingStep: (step: number) => void;
   updateOnboardingData: (data: Partial<AppState['onboardingData']>) => void;
   resetOnboardingData: () => void;
@@ -57,6 +72,36 @@ const initialOnboardingData = {
   morning_question_time: '08:00',
 };
 
+// Theme settings store (persisted)
+interface ThemeState {
+  themeMode: ThemeMode;
+  colorScheme: ColorScheme;
+  setThemeMode: (mode: ThemeMode) => void;
+  setColorScheme: (scheme: ColorScheme) => void;
+}
+
+export const useThemeStore = create<ThemeState>()(
+  persist(
+    (set) => ({
+      themeMode: 'system',
+      colorScheme: 'peach',
+      setThemeMode: (themeMode) => set({ themeMode }),
+      setColorScheme: (colorScheme) => set({ colorScheme }),
+    }),
+    {
+      name: 'yourbody-theme',
+    }
+  )
+);
+
+// Helper to get effective dark mode
+export const getEffectiveDarkMode = (themeMode: ThemeMode): boolean => {
+  if (themeMode === 'system') {
+    return getSystemTheme() === 'dark';
+  }
+  return themeMode === 'dark';
+};
+
 export const useStore = create<AppState>((set) => ({
   // Initial state
   user: null,
@@ -66,6 +111,8 @@ export const useStore = create<AppState>((set) => ({
   isDarkMode: false,
   isLoading: true,
   error: null,
+  themeMode: 'system',
+  colorScheme: 'peach',
   onboardingStep: 0,
   onboardingData: { ...initialOnboardingData },
   dashboard: null,
@@ -78,6 +125,8 @@ export const useStore = create<AppState>((set) => ({
   setDarkMode: (isDarkMode) => set({ isDarkMode }),
   setLoading: (isLoading) => set({ isLoading }),
   setError: (error) => set({ error }),
+  setThemeMode: (themeMode) => set({ themeMode }),
+  setColorScheme: (colorScheme) => set({ colorScheme }),
   setOnboardingStep: (onboardingStep) => set({ onboardingStep }),
   updateOnboardingData: (data) =>
     set((state) => ({
