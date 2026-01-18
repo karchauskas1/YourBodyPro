@@ -170,10 +170,10 @@ export function Dashboard() {
                   haptic('light');
                   navigate('/food/add');
                 }}
-                className="whitespace-nowrap"
+                className="whitespace-nowrap flex items-center gap-1"
               >
-                <Plus className="w-4 h-4 mr-1 flex-shrink-0" />
-                <span>Добавить</span>
+                <Plus className="w-4 h-4 flex-shrink-0" />
+                Добавить
               </Button>
             </div>
 
@@ -374,7 +374,7 @@ export function Dashboard() {
           <button
             onClick={() => {
               haptic('light');
-              navigate('/settings');
+              navigate('/edit-request');
             }}
             className="w-full py-3 text-sm font-medium rounded-xl transition-colors mt-2"
             style={{ color: 'var(--text-secondary)', background: 'var(--bg-glass)' }}

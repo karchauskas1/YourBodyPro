@@ -17,6 +17,7 @@ import { Sleep } from './pages/Sleep';
 import { DailySummary } from './pages/DailySummary';
 import { WeeklySummary } from './pages/WeeklySummary';
 import { Settings } from './pages/Settings';
+import { EditRequest } from './pages/EditRequest';
 import { NoSubscription } from './pages/NoSubscription';
 import { FoodCalendar } from './pages/FoodCalendar';
 
@@ -200,6 +201,12 @@ function AuthenticatedApp() {
         path="/settings"
         element={
           needsOnboarding ? <Navigate to="/onboarding" replace /> : <Settings />
+        }
+      />
+      <Route
+        path="/edit-request"
+        element={
+          needsOnboarding ? <Navigate to="/onboarding" replace /> : <EditRequest />
         }
       />
       <Route

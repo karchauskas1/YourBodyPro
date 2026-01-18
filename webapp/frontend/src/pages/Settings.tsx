@@ -7,11 +7,8 @@ import { useStore } from '../store/useStore';
 import { useTelegram } from '../hooks/useTelegram';
 import { useTheme, themeOptions, colorSchemeOptions } from '../hooks/useTheme';
 import { api } from '../api/client';
-import type { Goal, TrainingType, ActivityLevel } from '../types';
 import {
   ArrowLeft,
-  Target,
-  Dumbbell,
   Utensils,
   Moon,
   Calendar,
@@ -29,9 +26,6 @@ export function Settings() {
 
   const [isSaving, setIsSaving] = useState(false);
   const [localSettings, setLocalSettings] = useState({
-    goal: profile?.goal || 'maintain' as Goal,
-    training_type: profile?.training_type || 'marathon' as TrainingType,
-    activity_level: profile?.activity_level || 'medium' as ActivityLevel,
     food_tracker_enabled: profile?.food_tracker_enabled || false,
     sleep_tracker_enabled: profile?.sleep_tracker_enabled || false,
     weekly_review_enabled: profile?.weekly_review_enabled || false,
@@ -42,9 +36,6 @@ export function Settings() {
   useEffect(() => {
     if (profile) {
       setLocalSettings({
-        goal: profile.goal || 'maintain',
-        training_type: profile.training_type || 'marathon',
-        activity_level: profile.activity_level || 'medium',
         food_tracker_enabled: profile.food_tracker_enabled,
         sleep_tracker_enabled: profile.sleep_tracker_enabled,
         weekly_review_enabled: profile.weekly_review_enabled,
@@ -79,24 +70,6 @@ export function Settings() {
     }
   };
 
-  const goals: { value: Goal; label: string }[] = [
-    { value: 'lose', label: 'Снижение' },
-    { value: 'maintain', label: 'Поддержание' },
-    { value: 'gain', label: 'Набор' },
-  ];
-
-  const trainingTypes: { value: TrainingType; label: string }[] = [
-    { value: 'marathon', label: 'С Настей' },
-    { value: 'own', label: 'Свои' },
-    { value: 'mixed', label: 'Смешанный' },
-  ];
-
-  const activityLevels: { value: ActivityLevel; label: string }[] = [
-    { value: 'active', label: 'Активный' },
-    { value: 'medium', label: 'Средний' },
-    { value: 'calm', label: 'Спокойный' },
-  ];
-
   const timeOptions = {
     morning: ['06:00', '07:00', '08:00', '09:00', '10:00', '11:00'],
     evening: ['18:00', '19:00', '20:00', '21:00', '22:00', '23:00'],
@@ -118,93 +91,6 @@ export function Settings() {
       </div>
 
       <div className="space-y-4">
-        {/* Goal */}
-        <Card>
-          <div className="flex items-center gap-2 mb-3">
-            <Target className="w-5 h-5" style={{ color: 'var(--accent)' }} />
-            <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>
-              Цель
-            </h3>
-          </div>
-          <div className="flex gap-2">
-            {goals.map((goal) => (
-              <button
-                key={goal.value}
-                onClick={() => {
-                  haptic('selection');
-                  setLocalSettings((s) => ({ ...s, goal: goal.value }));
-                }}
-                className="flex-1 py-2 px-3 rounded-xl text-sm font-medium transition-all"
-                style={{
-                  background:
-                    localSettings.goal === goal.value ? 'var(--accent)' : 'var(--bg-secondary)',
-                  color: localSettings.goal === goal.value ? 'white' : 'var(--text-primary)',
-                }}
-              >
-                {goal.label}
-              </button>
-            ))}
-          </div>
-        </Card>
-
-        {/* Training type */}
-        <Card>
-          <div className="flex items-center gap-2 mb-3">
-            <Dumbbell className="w-5 h-5" style={{ color: 'var(--accent)' }} />
-            <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>
-              Тренировки
-            </h3>
-          </div>
-          <div className="flex gap-2 mb-3">
-            {trainingTypes.map((type) => (
-              <button
-                key={type.value}
-                onClick={() => {
-                  haptic('selection');
-                  setLocalSettings((s) => ({ ...s, training_type: type.value }));
-                }}
-                className="flex-1 py-2 px-3 rounded-xl text-sm font-medium transition-all"
-                style={{
-                  background:
-                    localSettings.training_type === type.value
-                      ? 'var(--accent)'
-                      : 'var(--bg-secondary)',
-                  color:
-                    localSettings.training_type === type.value ? 'white' : 'var(--text-primary)',
-                }}
-              >
-                {type.label}
-              </button>
-            ))}
-          </div>
-
-          <p className="text-xs mb-2" style={{ color: 'var(--text-secondary)' }}>
-            Ритм дня
-          </p>
-          <div className="flex gap-2">
-            {activityLevels.map((level) => (
-              <button
-                key={level.value}
-                onClick={() => {
-                  haptic('selection');
-                  setLocalSettings((s) => ({ ...s, activity_level: level.value }));
-                }}
-                className="flex-1 py-2 px-3 rounded-xl text-sm font-medium transition-all"
-                style={{
-                  background:
-                    localSettings.activity_level === level.value
-                      ? 'var(--accent)'
-                      : 'var(--bg-secondary)',
-                  color:
-                    localSettings.activity_level === level.value ? 'white' : 'var(--text-primary)',
-                }}
-              >
-                {level.label}
-              </button>
-            ))}
-          </div>
-        </Card>
-
         {/* Features */}
         <Card>
           <h3 className="font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>

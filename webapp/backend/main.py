@@ -351,29 +351,46 @@ async def add_food_photo(
     user: Dict = Depends(get_current_user)
 ):
     """Добавить еду фото"""
-    # Читаем и конвертируем в base64
-    contents = await photo.read()
-    photo_base64 = base64.b64encode(contents).decode('utf-8')
+    try:
+        # Читаем и конвертируем в base64
+        contents = await photo.read()
 
-    # Анализируем через Vision API
-    analysis = await analyze_food_photo(photo_base64, context or None)
+        # Проверяем размер (макс 10MB)
+        if len(contents) > 10 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="Фото слишком большое (макс 10MB)")
 
-    # Примечание: photo_file_id будет заполнен при загрузке через Telegram бота
-    # Здесь мы сохраняем без file_id (можно добавить локальное хранение)
+        photo_base64 = base64.b64encode(contents).decode('utf-8')
 
-    entry_id = await db.add_food_entry(
-        user_id=user['user_id'],
-        description=analysis.get('description', 'Фото еды'),
-        categories=analysis.get('categories'),
-        raw_input=context,
-        source='webapp'
-    )
+        # Анализируем через Vision API
+        analysis = await analyze_food_photo(photo_base64, context or None)
 
-    return {
-        "success": True,
-        "entry_id": entry_id,
-        "analysis": analysis
-    }
+        # Проверяем на ошибку анализа
+        if analysis.get('error'):
+            print(f"LLM analysis error: {analysis.get('error')}")
+            # Всё равно сохраняем, но с базовым описанием
+            analysis['description'] = analysis.get('description', 'Фото еды')
+
+        # Примечание: photo_file_id будет заполнен при загрузке через Telegram бота
+        # Здесь мы сохраняем без file_id (можно добавить локальное хранение)
+
+        entry_id = await db.add_food_entry(
+            user_id=user['user_id'],
+            description=analysis.get('description', 'Фото еды'),
+            categories=analysis.get('categories'),
+            raw_input=context,
+            source='webapp'
+        )
+
+        return {
+            "success": True,
+            "entry_id": entry_id,
+            "analysis": analysis
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in add_food_photo: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при сохранении: {str(e)}")
 
 
 @app.delete("/api/food/{entry_id}")

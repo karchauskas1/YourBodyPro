@@ -7,6 +7,9 @@ import json
 import os
 from typing import Optional, Dict, Any, List
 
+from dotenv import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(__file__), '../../.env'))
+
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
@@ -56,6 +59,15 @@ async def analyze_food_photo(
     Анализ фото еды через Vision API
     Возвращает: описание продуктов и их категории
     """
+    # Проверяем наличие API ключа
+    if not OPENROUTER_API_KEY or OPENROUTER_API_KEY == "your_openrouter_api_key_here":
+        return {
+            "description": "Фото еды",
+            "products": [],
+            "categories": {},
+            "error": "API key not configured"
+        }
+
     system_prompt = f"""Ты эксперт по питанию. Проанализируй фото еды и верни JSON.
 
 {FOOD_CATEGORIES}
@@ -143,6 +155,15 @@ async def analyze_food_text(text: str) -> Dict[str, Any]:
     """
     Анализ текстового описания еды
     """
+    # Проверяем наличие API ключа
+    if not OPENROUTER_API_KEY or OPENROUTER_API_KEY == "your_openrouter_api_key_here":
+        return {
+            "description": text,
+            "products": [text],
+            "categories": {},
+            "error": "API key not configured"
+        }
+
     system_prompt = f"""Ты эксперт по питанию. Проанализируй описание еды и верни JSON.
 
 {FOOD_CATEGORIES}
