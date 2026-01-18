@@ -53,6 +53,13 @@ function AuthenticatedApp() {
     setLoading(true);
     setAuthError(null);
 
+    // Debug: log Telegram WebApp info
+    console.log('Telegram WebApp available:', isAvailable);
+    console.log('window.Telegram:', window.Telegram);
+    console.log('WebApp object:', window.Telegram?.WebApp);
+    console.log('initData:', window.Telegram?.WebApp?.initData);
+    console.log('initDataUnsafe:', window.Telegram?.WebApp?.initDataUnsafe);
+
     try {
       // Check subscription and get user data
       const response = await api.me();
@@ -103,6 +110,7 @@ function AuthenticatedApp() {
 
   // Auth error
   if (authError) {
+    const tg = window.Telegram?.WebApp;
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <div className="text-center">
@@ -118,6 +126,13 @@ function AuthenticatedApp() {
           <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
             {authError}
           </p>
+          {/* Debug info */}
+          <div className="text-xs text-left mb-4 p-2 rounded" style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>
+            <p>TG available: {tg ? 'Yes' : 'No'}</p>
+            <p>initData: {tg?.initData ? `${tg.initData.substring(0, 30)}...` : 'EMPTY'}</p>
+            <p>User: {tg?.initDataUnsafe?.user ? JSON.stringify(tg.initDataUnsafe.user) : 'null'}</p>
+            <p>Platform: {(tg as any)?.platform || 'unknown'}</p>
+          </div>
           <button
             onClick={initializeApp}
             className="btn-primary"
