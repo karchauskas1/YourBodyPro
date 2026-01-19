@@ -54,8 +54,13 @@ export function AddFood() {
 
     try {
       if (mode === 'photo' && photo) {
-        console.log('Uploading photo:', photo.name, photo.size, photo.type);
-        await api.addFoodPhoto(photo);
+        console.log('🔄 Starting photo upload:', {
+          name: photo.name,
+          size: `${(photo.size / 1024 / 1024).toFixed(2)} MB`,
+          type: photo.type
+        });
+        const result = await api.addFoodPhoto(photo);
+        console.log('✅ Photo uploaded successfully:', result);
       } else if (mode === 'text' && text.trim()) {
         await api.addFoodText(text.trim());
       } else {
@@ -67,8 +72,25 @@ export function AddFood() {
       haptic('success');
       navigate('/');
     } catch (err: any) {
-      console.error('Failed to add food:', err);
-      const errorMessage = err?.message || err?.detail || 'Не удалось сохранить';
+      console.error('❌ Failed to add food:', {
+        error: err,
+        message: err?.message,
+        detail: err?.detail,
+        status: err?.status
+      });
+
+      // Более детальное сообщение об ошибке
+      let errorMessage = 'Не удалось сохранить';
+      if (err?.status === 413 || err?.message?.includes('too large')) {
+        errorMessage = 'Фото слишком большое. Максимум 10MB';
+      } else if (err?.status === 500) {
+        errorMessage = 'Ошибка сервера. Попробуйте позже';
+      } else if (err?.message) {
+        errorMessage = err.message;
+      } else if (err?.detail) {
+        errorMessage = err.detail;
+      }
+
       setError(errorMessage);
       haptic('error');
     } finally {
