@@ -121,7 +121,7 @@ export function Button({
   return (
     <button
       type={type}
-      className={`${baseClass} ${sizeClasses[size]} ${disabled || loading ? 'opacity-50 cursor-not-allowed' : ''} ${className}`}
+      className={`${baseClass} ${sizeClasses[size]} ${disabled || loading ? 'opacity-50 cursor-not-allowed' : ''} flex items-center justify-center ${className}`}
       disabled={disabled || loading}
       onClick={onClick}
     >

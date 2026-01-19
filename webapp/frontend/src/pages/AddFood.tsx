@@ -54,6 +54,7 @@ export function AddFood() {
 
     try {
       if (mode === 'photo' && photo) {
+        console.log('Uploading photo:', photo.name, photo.size, photo.type);
         await api.addFoodPhoto(photo);
       } else if (mode === 'text' && text.trim()) {
         await api.addFoodText(text.trim());
@@ -65,9 +66,10 @@ export function AddFood() {
 
       haptic('success');
       navigate('/');
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to add food:', err);
-      setError('Не удалось сохранить');
+      const errorMessage = err?.message || err?.detail || 'Не удалось сохранить';
+      setError(errorMessage);
       haptic('error');
     } finally {
       setIsLoading(false);
