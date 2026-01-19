@@ -17,30 +17,51 @@ import {
   Check
 } from 'lucide-react';
 
-// Step 1: Welcome
+// Step 1: Welcome with motivation
 function WelcomeStep({ onNext }: { onNext: () => void }) {
   const { haptic } = useTelegram();
 
   return (
-    <div className="animate-in flex flex-col items-center text-center pt-12">
+    <div className="animate-in flex flex-col items-center text-center pt-8">
       <div
-        className="w-20 h-20 rounded-full flex items-center justify-center mb-8"
+        className="w-24 h-24 rounded-full flex items-center justify-center mb-6"
         style={{ background: 'var(--accent-soft)' }}
       >
-        <span className="text-4xl">✨</span>
+        <span className="text-5xl">🎉</span>
       </div>
 
-      <h1 className="text-2xl font-bold mb-4" style={{ color: 'var(--text-primary)' }}>
-        Привет!
+      <h1 className="text-2xl font-bold mb-3" style={{ color: 'var(--text-primary)' }}>
+        Добро пожаловать!
       </h1>
 
-      <p className="text-base mb-2" style={{ color: 'var(--text-secondary)' }}>
-        Я помогу тебе освоить полезные привычки
+      <p className="text-lg mb-4 font-medium" style={{ color: 'var(--accent)' }}>
+        Ты теперь в клубе здоровых людей! 💪
       </p>
 
-      <p className="text-sm mb-12" style={{ color: 'var(--text-tertiary)' }}>
-        Без давления, подсчётов и постоянных напоминаний
+      <p className="text-base mb-3" style={{ color: 'var(--text-secondary)' }}>
+        Здесь мы помогаем освоить полезные привычки через:
       </p>
+
+      <div className="space-y-2 mb-8 w-full">
+        <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: 'var(--bg-secondary)' }}>
+          <span className="text-2xl">🍽️</span>
+          <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+            Осознанное питание без подсчёта калорий
+          </span>
+        </div>
+        <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: 'var(--bg-secondary)' }}>
+          <span className="text-2xl">😴</span>
+          <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+            Отслеживание качества сна
+          </span>
+        </div>
+        <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: 'var(--bg-secondary)' }}>
+          <span className="text-2xl">📊</span>
+          <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+            Недельные обзоры и паттерны
+          </span>
+        </div>
+      </div>
 
       <Button
         onClick={() => {
@@ -49,7 +70,172 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
         }}
         className="w-full"
       >
-        Начать
+        Узнать подробнее
+        <ChevronRight className="inline-block ml-2 w-5 h-5" />
+      </Button>
+    </div>
+  );
+}
+
+// Step 2: Feature descriptions (Food Tracker)
+function FoodTrackerInfoStep({ onNext }: { onNext: () => void }) {
+  const { haptic } = useTelegram();
+
+  return (
+    <div className="animate-in pt-4">
+      <div className="flex flex-col items-center text-center mb-6">
+        <div
+          className="w-20 h-20 rounded-full flex items-center justify-center mb-4"
+          style={{ background: 'var(--accent-soft)' }}
+        >
+          <Utensils className="w-10 h-10" style={{ color: 'var(--accent)' }} />
+        </div>
+        <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
+          Food Tracker
+        </h2>
+      </div>
+
+      <div className="space-y-4 mb-8">
+        <Card>
+          <h3 className="font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
+            📸 Фотографируй или описывай
+          </h3>
+          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+            Добавляй еду фотографией или текстом. AI распознает продукты и поможет понять, что ты ешь.
+          </p>
+        </Card>
+
+        <Card>
+          <h3 className="font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
+            🌙 Вечерний итог
+          </h3>
+          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+            Каждый вечер получай анализ: баланс белков, жиров, углеводов, овощей. Без калорий и граммов!
+          </p>
+        </Card>
+
+        <Card>
+          <h3 className="font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
+            😋 Голод и сытость
+          </h3>
+          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+            Отмечай, насколько хотелось есть до и насколько насытился после. Это поможет лучше понять свои сигналы.
+          </p>
+        </Card>
+      </div>
+
+      <Button onClick={() => { haptic('light'); onNext(); }} className="w-full">
+        Далее
+        <ChevronRight className="inline-block ml-2 w-5 h-5" />
+      </Button>
+    </div>
+  );
+}
+
+// Step 3: Sleep Tracker Info
+function SleepTrackerInfoStep({ onNext }: { onNext: () => void }) {
+  const { haptic } = useTelegram();
+
+  return (
+    <div className="animate-in pt-4">
+      <div className="flex flex-col items-center text-center mb-6">
+        <div
+          className="w-20 h-20 rounded-full flex items-center justify-center mb-4"
+          style={{ background: 'var(--accent-soft)' }}
+        >
+          <Moon className="w-10 h-10" style={{ color: 'var(--accent)' }} />
+        </div>
+        <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
+          Трекер сна
+        </h2>
+      </div>
+
+      <div className="space-y-4 mb-8">
+        <Card>
+          <h3 className="font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
+            ☀️ Утренний вопрос
+          </h3>
+          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+            Каждое утро получай вопрос: "Как ты спал?". Просто выбери оценку от 1 до 5.
+          </p>
+        </Card>
+
+        <Card>
+          <h3 className="font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
+            📊 Отслеживание паттернов
+          </h3>
+          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+            Смотри, как сон влияет на твою энергию и питание. Найди свои паттерны!
+          </p>
+        </Card>
+
+        <Card>
+          <h3 className="font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
+            🕐 В удобное время
+          </h3>
+          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+            Настрой время утреннего вопроса под свой график. Бот адаптируется под тебя!
+          </p>
+        </Card>
+      </div>
+
+      <Button onClick={() => { haptic('light'); onNext(); }} className="w-full">
+        Далее
+        <ChevronRight className="inline-block ml-2 w-5 h-5" />
+      </Button>
+    </div>
+  );
+}
+
+// Step 4: Weekly Review Info
+function WeeklyReviewInfoStep({ onNext }: { onNext: () => void }) {
+  const { haptic } = useTelegram();
+
+  return (
+    <div className="animate-in pt-4">
+      <div className="flex flex-col items-center text-center mb-6">
+        <div
+          className="w-20 h-20 rounded-full flex items-center justify-center mb-4"
+          style={{ background: 'var(--accent-soft)' }}
+        >
+          <Calendar className="w-10 h-10" style={{ color: 'var(--accent)' }} />
+        </div>
+        <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
+          Недельные обзоры
+        </h2>
+      </div>
+
+      <div className="space-y-4 mb-8">
+        <Card>
+          <h3 className="font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
+            📈 Еженедельный анализ
+          </h3>
+          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+            Каждое воскресенье получай обзор недели: как разнообразно ты питался, средний сон, твои паттерны.
+          </p>
+        </Card>
+
+        <Card>
+          <h3 className="font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
+            🔍 Связи и паттерны
+          </h3>
+          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+            AI найдёт связи между твоим сном, питанием и самочувствием. Узнай, что влияет на твою энергию!
+          </p>
+        </Card>
+
+        <Card>
+          <h3 className="font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
+            💡 Персональные инсайты
+          </h3>
+          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+            Получай рекомендации, основанные на твоих данных. Без общих советов - только то, что работает для тебя!
+          </p>
+        </Card>
+      </div>
+
+      <Button onClick={() => { haptic('light'); onNext(); }} className="w-full">
+        Понятно, дальше!
         <ChevronRight className="inline-block ml-2 w-5 h-5" />
       </Button>
     </div>
@@ -398,7 +584,7 @@ export function Onboarding() {
   const [step, setStep] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
 
-  const totalSteps = 4;
+  const totalSteps = 7; // Welcome + 3 info screens + Goal + Training + Features
 
   const handleNext = () => {
     haptic('light');
@@ -468,7 +654,13 @@ export function Onboarding() {
       {/* Steps */}
       {step === 0 && <WelcomeStep onNext={handleNext} />}
 
-      {step === 1 && (
+      {step === 1 && <FoodTrackerInfoStep onNext={handleNext} />}
+
+      {step === 2 && <SleepTrackerInfoStep onNext={handleNext} />}
+
+      {step === 3 && <WeeklyReviewInfoStep onNext={handleNext} />}
+
+      {step === 4 && (
         <GoalStep
           value={onboardingData.goal}
           onChange={(goal) => updateOnboardingData({ goal })}
@@ -476,7 +668,7 @@ export function Onboarding() {
         />
       )}
 
-      {step === 2 && (
+      {step === 5 && (
         <TrainingStep
           trainingType={onboardingData.training_type}
           activityLevel={onboardingData.activity_level}
@@ -486,7 +678,7 @@ export function Onboarding() {
         />
       )}
 
-      {step === 3 && (
+      {step === 6 && (
         <FeaturesStep
           data={{
             food_tracker_enabled: onboardingData.food_tracker_enabled,

@@ -1,69 +1,127 @@
 // No Subscription page - shown when user doesn't have active subscription
 
+import { useNavigate } from 'react-router-dom';
 import { Layout, Card, Button } from '../components/Layout';
 import { useTelegram } from '../hooks/useTelegram';
-import { Lock, CreditCard, ExternalLink } from 'lucide-react';
+import { Check, Sparkles } from 'lucide-react';
 
 export function NoSubscription() {
-  const { close } = useTelegram();
+  const navigate = useNavigate();
+  const { haptic, close } = useTelegram();
+
+  const benefits = [
+    {
+      emoji: '🍽️',
+      title: 'Food Tracker с AI',
+      description: 'Распознавание еды по фото, анализ баланса, вечерние итоги',
+    },
+    {
+      emoji: '😴',
+      title: 'Трекер сна',
+      description: 'Отслеживание качества сна и связи с питанием',
+    },
+    {
+      emoji: '📊',
+      title: 'Недельные обзоры',
+      description: 'Персональные паттерны и инсайты каждое воскресенье',
+    },
+    {
+      emoji: '😋',
+      title: 'Голод и сытость',
+      description: 'Учись понимать сигналы своего тела',
+    },
+    {
+      emoji: '🎯',
+      title: 'Персональные цели',
+      description: 'Настройка под твои задачи: похудение, набор массы или поддержание',
+    },
+    {
+      emoji: '⏰',
+      title: 'Гибкие уведомления',
+      description: 'Настрой время под свой график в любом часовом поясе',
+    },
+    {
+      emoji: '🏋️',
+      title: 'Тренировки',
+      description: 'Марафон с Настей: тренировки "повторяй за мной"',
+    },
+    {
+      emoji: '💬',
+      title: 'Комьюнити',
+      description: 'Закрытое комьюнити единомышленников',
+    },
+  ];
+
+  const handleSubscribe = () => {
+    haptic('medium');
+    // Return to bot to purchase subscription
+    close();
+  };
 
   return (
     <Layout>
-      <div className="flex flex-col items-center text-center pt-12 animate-in">
+      <div className="flex flex-col items-center text-center pt-6 pb-6 animate-in">
+        {/* Sad cat */}
         <div
-          className="w-20 h-20 rounded-full flex items-center justify-center mb-8"
-          style={{ background: 'var(--warning-soft)' }}
+          className="w-32 h-32 rounded-full flex items-center justify-center mb-6"
+          style={{ background: 'var(--bg-secondary)' }}
         >
-          <Lock className="w-10 h-10" style={{ color: 'var(--warning)' }} />
+          <span className="text-7xl">😿</span>
         </div>
 
-        <h1 className="text-2xl font-bold mb-3" style={{ color: 'var(--text-primary)' }}>
-          Требуется подписка
+        <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--text-primary)' }}>
+          Этот котик грустит...
         </h1>
 
-        <p className="text-sm mb-8 max-w-xs" style={{ color: 'var(--text-secondary)' }}>
-          Для доступа к ассистенту привычек необходима активная подписка на марафон
+        <p className="text-base mb-8" style={{ color: 'var(--text-secondary)' }}>
+          Потому что у тебя нет подписки
+          <br />
+          Но он с удовольствием про неё расскажет! 😺
         </p>
 
-        <Card className="w-full mb-6">
-          <div className="flex items-start gap-4">
-            <div
-              className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
-              style={{ background: 'var(--accent-soft)' }}
-            >
-              <CreditCard className="w-6 h-6" style={{ color: 'var(--accent)' }} />
-            </div>
-            <div className="text-left">
-              <h3 className="font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>
-                Что входит в подписку
-              </h3>
-              <ul className="text-sm space-y-1" style={{ color: 'var(--text-secondary)' }}>
-                <li>• Тренировки «повторяй за мной»</li>
-                <li>• Ассистент привычек</li>
-                <li>• Food tracker с AI-анализом</li>
-                <li>• Персональные итоги и обзоры</li>
-                <li>• Закрытое комьюнити</li>
-              </ul>
-            </div>
+        {/* Benefits */}
+        <div className="w-full space-y-3 mb-8">
+          <div className="flex items-center gap-2 mb-4">
+            <Sparkles className="w-5 h-5" style={{ color: 'var(--accent)' }} />
+            <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
+              Что даёт подписка:
+            </h2>
           </div>
-        </Card>
 
-        <div className="w-full space-y-3">
-          <Button
-            onClick={() => {
-              // Return to bot to pay
-              close();
-            }}
-            className="w-full"
-          >
-            Оформить подписку
-            <ExternalLink className="w-4 h-4 ml-2" />
-          </Button>
-
-          <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
-            Оплата происходит через бота
-          </p>
+          {benefits.map((benefit, index) => (
+            <Card key={index} className="text-left">
+              <div className="flex items-start gap-3">
+                <span className="text-2xl flex-shrink-0">{benefit.emoji}</span>
+                <div className="flex-1">
+                  <h3 className="font-semibold mb-1 text-sm" style={{ color: 'var(--text-primary)' }}>
+                    {benefit.title}
+                  </h3>
+                  <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                    {benefit.description}
+                  </p>
+                </div>
+                <Check className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--success)' }} />
+              </div>
+            </Card>
+          ))}
         </div>
+
+        {/* CTA */}
+        <Button onClick={handleSubscribe} className="w-full mb-4">
+          <Sparkles className="w-5 h-5 mr-2" />
+          Узнать про блага подписки
+        </Button>
+
+        <button
+          onClick={() => {
+            haptic('light');
+            navigate('/');
+          }}
+          className="text-sm"
+          style={{ color: 'var(--text-tertiary)' }}
+        >
+          Вернуться назад
+        </button>
       </div>
     </Layout>
   );
