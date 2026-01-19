@@ -13,6 +13,8 @@ import { LoadingSpinner } from './components/Layout';
 import { Dashboard } from './pages/Dashboard';
 import { Onboarding } from './pages/Onboarding';
 import { AddFood } from './pages/AddFood';
+import { FoodList } from './pages/FoodList';
+import { FoodEntryDetail } from './pages/FoodEntryDetail';
 import { Sleep } from './pages/Sleep';
 import { DailySummary } from './pages/DailySummary';
 import { WeeklySummary } from './pages/WeeklySummary';
@@ -177,6 +179,18 @@ function AuthenticatedApp() {
         path="/food/add"
         element={
           needsOnboarding ? <Navigate to="/onboarding" replace /> : <AddFood />
+        }
+      />
+      <Route
+        path="/food/:id"
+        element={
+          needsOnboarding ? <Navigate to="/onboarding" replace /> : <FoodEntryDetail />
+        }
+      />
+      <Route
+        path="/food"
+        element={
+          needsOnboarding ? <Navigate to="/onboarding" replace /> : <FoodList />
         }
       />
       <Route

@@ -187,6 +187,14 @@ export const api = {
       }),
     }),
 
+  updateFoodEntry: (entryId: number, description: string) =>
+    apiFetch<{ success: boolean }>(`/food/${entryId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        description,
+      }),
+    }),
+
   deleteFoodEntry: (entryId: number) =>
     apiFetch<{ success: boolean }>(`/food/${entryId}`, {
       method: 'DELETE',

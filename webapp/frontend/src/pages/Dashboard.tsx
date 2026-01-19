@@ -103,9 +103,6 @@ export function Dashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedEntry, setSelectedEntry] = useState<FoodEntry | null>(null);
-  const [fullnessRating, setFullnessRating] = useState<number | undefined>(undefined);
-  const [isUpdating, setIsUpdating] = useState(false);
 
   useEffect(() => {
     loadDashboard();
@@ -128,42 +125,9 @@ export function Dashboard() {
 
   const handleFoodEntryClick = (entry: FoodEntry) => {
     haptic('light');
-    setSelectedEntry(entry);
-    setFullnessRating(entry.fullness_after);
+    navigate(`/food/${entry.id}`);
   };
 
-  const handleUpdateFullness = async () => {
-    if (!selectedEntry || fullnessRating === undefined) return;
-
-    setIsUpdating(true);
-    haptic('medium');
-
-    try {
-      await api.updateFoodEntryFeelings(selectedEntry.id, undefined, fullnessRating);
-
-      // Обновляем локальные данные
-      if (data) {
-        const updatedEntries = data.food.entries.map((entry) =>
-          entry.id === selectedEntry.id
-            ? { ...entry, fullness_after: fullnessRating }
-            : entry
-        );
-        setData({
-          ...data,
-          food: { ...data.food, entries: updatedEntries },
-        });
-      }
-
-      haptic('success');
-      setSelectedEntry(null);
-      setFullnessRating(undefined);
-    } catch (err) {
-      console.error('Failed to update fullness:', err);
-      haptic('error');
-    } finally {
-      setIsUpdating(false);
-    }
-  };
 
   if (isLoading) {
     return (
@@ -444,94 +408,6 @@ export function Dashboard() {
         )}
       </div>
 
-      {/* Fullness rating modal */}
-      {selectedEntry && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-end justify-center z-50 animate-in"
-          onClick={() => {
-            setSelectedEntry(null);
-            setFullnessRating(undefined);
-          }}
-        >
-          <div
-            className="w-full max-w-md p-6 rounded-t-3xl"
-            style={{ background: 'var(--bg-primary)' }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="text-lg font-bold mb-2" style={{ color: 'var(--text-primary)' }}>
-              {selectedEntry.description}
-            </h3>
-            <p className="text-sm mb-1" style={{ color: 'var(--text-secondary)' }}>
-              Время: {selectedEntry.time}
-            </p>
-            {selectedEntry.hunger_before && (
-              <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
-                Голод перед едой: {selectedEntry.hunger_before}/5
-              </p>
-            )}
-
-            <div className="mb-6">
-              <label className="text-sm font-medium mb-3 block" style={{ color: 'var(--text-secondary)' }}>
-                Насколько насытился после еды?
-              </label>
-              <p className="text-xs mb-3" style={{ color: 'var(--text-tertiary)' }}>
-                💡 Отметь сытость через 10-15 минут после еды, когда почувствуешь полное насыщение
-              </p>
-              <div className="flex gap-2">
-                {[1, 2, 3, 4, 5].map((level) => (
-                  <button
-                    key={level}
-                    onClick={() => {
-                      haptic('selection');
-                      setFullnessRating(level);
-                    }}
-                    className="flex-1 py-3 px-2 rounded-xl text-sm font-medium transition-all"
-                    style={{
-                      background: fullnessRating === level ? 'var(--accent)' : 'var(--bg-secondary)',
-                      color: fullnessRating === level ? 'white' : 'var(--text-primary)',
-                    }}
-                  >
-                    {level === 1 && '😐'}
-                    {level === 2 && '🙂'}
-                    {level === 3 && '😊'}
-                    {level === 4 && '😌'}
-                    {level === 5 && '🤤'}
-                    <div className="text-xs mt-1">{level}</div>
-                  </button>
-                ))}
-              </div>
-              <p className="text-xs mt-2" style={{ color: 'var(--text-tertiary)' }}>
-                1 - совсем не насытился, 5 - очень сыт
-              </p>
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                onClick={() => {
-                  setSelectedEntry(null);
-                  setFullnessRating(undefined);
-                }}
-                className="flex-1 py-3 rounded-xl font-medium"
-                style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
-              >
-                Отмена
-              </button>
-              <button
-                onClick={handleUpdateFullness}
-                disabled={fullnessRating === undefined || isUpdating}
-                className="flex-1 py-3 rounded-xl font-medium"
-                style={{
-                  background: fullnessRating === undefined ? 'var(--bg-secondary)' : 'var(--accent)',
-                  color: fullnessRating === undefined ? 'var(--text-tertiary)' : 'white',
-                  opacity: isUpdating ? 0.5 : 1,
-                }}
-              >
-                {isUpdating ? 'Сохранение...' : 'Сохранить'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </Layout>
   );
 }

@@ -286,6 +286,24 @@ class HabitDB:
             result[date] = await self.get_food_entries_for_date(user_id, date)
         return result
 
+    async def update_food_entry_description(
+        self,
+        entry_id: int,
+        user_id: int,
+        description: str
+    ) -> bool:
+        """Обновить описание приема пищи"""
+        await self.conn.execute(
+            """
+            UPDATE food_entries
+            SET description = ?
+            WHERE user_id = ? AND id = ?
+            """,
+            (description, user_id, entry_id)
+        )
+        await self.conn.commit()
+        return True
+
     async def delete_food_entry(self, user_id: int, entry_id: int) -> bool:
         cur = await self.conn.execute(
             "DELETE FROM food_entries WHERE id = ? AND user_id = ?",

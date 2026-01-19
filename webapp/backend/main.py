@@ -57,6 +57,10 @@ class FoodEntryFeelings(BaseModel):
     fullness_after: Optional[int] = None  # 1-5
 
 
+class FoodEntryUpdate(BaseModel):
+    description: str
+
+
 class SleepEntry(BaseModel):
     score: int  # 1-5
     date: Optional[str] = None  # '2025-01-18'
@@ -437,6 +441,26 @@ async def update_food_entry_feelings(
     )
     if not updated:
         raise HTTPException(status_code=404, detail="Entry not found or nothing to update")
+    return {"success": True}
+
+
+@app.patch("/api/food/{entry_id}")
+async def update_food_entry(
+    entry_id: int,
+    data: FoodEntryUpdate,
+    user: Dict = Depends(get_current_user)
+):
+    """Обновить описание приема пищи"""
+    if not data.description.strip():
+        raise HTTPException(status_code=400, detail="Description cannot be empty")
+
+    updated = await db.update_food_entry_description(
+        entry_id=entry_id,
+        user_id=user['user_id'],
+        description=data.description.strip()
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Entry not found")
     return {"success": True}
 
 
