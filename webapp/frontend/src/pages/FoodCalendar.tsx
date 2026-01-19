@@ -15,11 +15,6 @@ interface DayData {
   entries: FoodEntry[];
 }
 
-interface DaySummaryData {
-  summary: DailySummaryType | null;
-  loading: boolean;
-}
-
 export function FoodCalendar() {
   const navigate = useNavigate();
   const { haptic } = useTelegram();
