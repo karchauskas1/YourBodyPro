@@ -18,6 +18,7 @@ export interface UserProfile {
   weekly_review_enabled: boolean;
   evening_summary_time: string;
   morning_question_time: string;
+  timezone_offset?: number;
   onboarding_completed: boolean;
   created_at?: number;
   updated_at?: number;
@@ -98,6 +99,7 @@ export interface OnboardingData {
   weekly_review_enabled: boolean;
   evening_summary_time: string;
   morning_question_time: string;
+  timezone_offset?: number;
 }
 
 // Telegram WebApp types

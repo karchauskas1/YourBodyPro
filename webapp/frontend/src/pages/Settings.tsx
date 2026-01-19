@@ -50,13 +50,21 @@ export function Settings() {
     haptic('medium');
 
     try {
-      await api.updateSettings(localSettings);
+      // Получаем timezone offset пользователя (в минутах от UTC)
+      // JavaScript возвращает offset с обратным знаком, поэтому инвертируем
+      const timezoneOffset = -new Date().getTimezoneOffset();
+
+      await api.updateSettings({
+        ...localSettings,
+        timezone_offset: timezoneOffset,
+      });
 
       // Update local profile
       if (profile) {
         setProfile({
           ...profile,
           ...localSettings,
+          timezone_offset: timezoneOffset,
         });
       }
 

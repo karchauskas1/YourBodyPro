@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS user_profiles (
     weekly_review_enabled INTEGER DEFAULT 0,
     evening_summary_time TEXT DEFAULT '21:00',
     morning_question_time TEXT DEFAULT '08:00',
+    timezone_offset INTEGER DEFAULT 180,  -- offset в минутах от UTC (по умолчанию MSK +180)
     onboarding_completed INTEGER DEFAULT 0,
     created_at INTEGER,
     updated_at INTEGER
@@ -349,38 +350,45 @@ class HabitDB:
     # ============ Helpers ============
 
     async def get_users_for_notification(
-        self, notification_type: str, current_time: str
-    ) -> List[int]:
+        self, notification_type: str
+    ) -> List[Dict[str, Any]]:
         """
-        Получить user_id для отправки уведомлений
+        Получить пользователей для отправки уведомлений с их настройками времени и часового пояса
         notification_type: 'morning' | 'evening'
-        current_time: '08:00'
+        Возвращает список dict с полями: user_id, notification_time, timezone_offset
         """
         if notification_type == 'morning':
             cur = await self.conn.execute(
                 """
-                SELECT up.user_id FROM user_profiles up
+                SELECT up.user_id, up.morning_question_time, up.timezone_offset
+                FROM user_profiles up
                 JOIN users u ON up.user_id = u.user_id
                 WHERE up.sleep_tracker_enabled = 1
-                AND up.morning_question_time = ?
                 AND u.expires_at > ?
                 """,
-                (current_time, int(datetime.now(MSK).timestamp()))
+                (int(datetime.now(timezone.utc).timestamp()),)
             )
         else:  # evening
             cur = await self.conn.execute(
                 """
-                SELECT up.user_id FROM user_profiles up
+                SELECT up.user_id, up.evening_summary_time, up.timezone_offset
+                FROM user_profiles up
                 JOIN users u ON up.user_id = u.user_id
                 WHERE up.food_tracker_enabled = 1
-                AND up.evening_summary_time = ?
                 AND u.expires_at > ?
                 """,
-                (current_time, int(datetime.now(MSK).timestamp()))
+                (int(datetime.now(timezone.utc).timestamp()),)
             )
 
         rows = await cur.fetchall()
-        return [row[0] for row in rows]
+        return [
+            {
+                'user_id': row[0],
+                'notification_time': row[1],
+                'timezone_offset': row[2] or 180  # Default to MSK if null
+            }
+            for row in rows
+        ]
 
     async def get_users_for_weekly_review(self) -> List[int]:
         """Получить пользователей с включённым недельным обзором и активной подпиской"""

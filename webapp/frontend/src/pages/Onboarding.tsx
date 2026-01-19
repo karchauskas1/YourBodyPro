@@ -414,6 +414,9 @@ export function Onboarding() {
     haptic('medium');
 
     try {
+      // Получаем timezone offset пользователя (в минутах от UTC)
+      const timezoneOffset = -new Date().getTimezoneOffset();
+
       const data: OnboardingData = {
         goal: onboardingData.goal,
         training_type: onboardingData.training_type,
@@ -423,6 +426,7 @@ export function Onboarding() {
         weekly_review_enabled: onboardingData.weekly_review_enabled,
         evening_summary_time: onboardingData.evening_summary_time,
         morning_question_time: onboardingData.morning_question_time,
+        timezone_offset: timezoneOffset,
       };
 
       await api.saveOnboarding(data);

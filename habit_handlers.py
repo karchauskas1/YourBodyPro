@@ -275,71 +275,104 @@ async def notification_scheduler(bot):
 
     while True:
         try:
-            now = datetime.now(MSK)
-            current_time = now.strftime('%H:%M')
-            current_weekday = now.weekday()
+            # Получаем текущее UTC время
+            now_utc = datetime.now(timezone.utc)
 
             # ---- Утренние вопросы о сне ----
-            morning_users = await habit_db.get_users_for_notification('morning', current_time)
-            for user_id in morning_users:
-                today = now.strftime('%Y-%m-%d')
-                existing = await habit_db.get_sleep_entry(user_id, today)
-                if existing is None:
-                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                        [
-                            InlineKeyboardButton(text="😴 1", callback_data="sleep:1"),
-                            InlineKeyboardButton(text="😕 2", callback_data="sleep:2"),
-                            InlineKeyboardButton(text="😐 3", callback_data="sleep:3"),
-                            InlineKeyboardButton(text="🙂 4", callback_data="sleep:4"),
-                            InlineKeyboardButton(text="😊 5", callback_data="sleep:5"),
-                        ]
-                    ])
-                    try:
-                        await bot.send_message(
-                            user_id,
-                            "☀️ Доброе утро!\n\nКак ты сегодня спал(а)?",
-                            reply_markup=keyboard
-                        )
-                        log.info(f"Sent morning sleep question to {user_id}")
-                    except Exception as e:
-                        log.warning(f"Failed to send sleep question to {user_id}: {e}")
+            morning_users = await habit_db.get_users_for_notification('morning')
+            for user_data in morning_users:
+                user_id = user_data['user_id']
+                notification_time = user_data['notification_time']  # '10:00'
+                timezone_offset = user_data['timezone_offset']  # 180 для MSK, 240 для Dubai, и т.д.
+
+                # Вычисляем локальное время пользователя
+                user_tz = timezone(timedelta(minutes=timezone_offset))
+                user_local_time = now_utc.astimezone(user_tz)
+                user_current_time = user_local_time.strftime('%H:%M')
+                user_today = user_local_time.strftime('%Y-%m-%d')
+
+                # Проверяем, совпадает ли текущее локальное время с настройкой
+                if user_current_time == notification_time:
+                    existing = await habit_db.get_sleep_entry(user_id, user_today)
+                    if existing is None:
+                        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                            [
+                                InlineKeyboardButton(text="😴 1", callback_data="sleep:1"),
+                                InlineKeyboardButton(text="😕 2", callback_data="sleep:2"),
+                                InlineKeyboardButton(text="😐 3", callback_data="sleep:3"),
+                                InlineKeyboardButton(text="🙂 4", callback_data="sleep:4"),
+                                InlineKeyboardButton(text="😊 5", callback_data="sleep:5"),
+                            ]
+                        ])
+                        try:
+                            await bot.send_message(
+                                user_id,
+                                "☀️ Доброе утро!\n\nКак ты сегодня спал(а)?",
+                                reply_markup=keyboard
+                            )
+                            log.info(f"Sent morning sleep question to {user_id} (local time: {user_current_time})")
+                        except Exception as e:
+                            log.warning(f"Failed to send sleep question to {user_id}: {e}")
 
             # ---- Вечерние итоги ----
-            evening_users = await habit_db.get_users_for_notification('evening', current_time)
-            for user_id in evening_users:
-                today = now.strftime('%Y-%m-%d')
-                food_entries = await habit_db.get_food_entries_for_date(user_id, today)
+            evening_users = await habit_db.get_users_for_notification('evening')
+            for user_data in evening_users:
+                user_id = user_data['user_id']
+                notification_time = user_data['notification_time']  # '21:00'
+                timezone_offset = user_data['timezone_offset']
 
-                if food_entries:
-                    # Генерируем итог если нужно
-                    existing_summary = await habit_db.get_daily_summary(user_id, today)
-                    if not existing_summary:
-                        profile = await habit_db.get_user_profile(user_id)
-                        user_goal = profile.get('goal', 'maintain') if profile else 'maintain'
-                        summary = await generate_daily_summary(food_entries, user_goal)
-                        await habit_db.save_daily_summary(user_id, today, summary)
+                # Вычисляем локальное время пользователя
+                user_tz = timezone(timedelta(minutes=timezone_offset))
+                user_local_time = now_utc.astimezone(user_tz)
+                user_current_time = user_local_time.strftime('%H:%M')
+                user_today = user_local_time.strftime('%Y-%m-%d')
 
-                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(
-                            text="📊 Посмотреть итог",
-                            web_app={"url": f"{WEBAPP_URL_LOCAL}/summary"}
-                        )]
-                    ])
-                    try:
-                        await bot.send_message(
-                            user_id,
-                            "🌙 Твой вечерний итог готов!\n\n"
-                            "Посмотри, как прошёл день с точки зрения питания.",
-                            reply_markup=keyboard
-                        )
-                        log.info(f"Sent evening summary to {user_id}")
-                    except Exception as e:
-                        log.warning(f"Failed to send evening summary to {user_id}: {e}")
+                # Проверяем, совпадает ли текущее локальное время с настройкой
+                if user_current_time == notification_time:
+                    food_entries = await habit_db.get_food_entries_for_date(user_id, user_today)
 
-            # ---- Недельные обзоры (воскресенье в 12:00) ----
-            if current_weekday == 6 and current_time == "12:00":
-                weekly_users = await habit_db.get_users_for_weekly_review()
-                for user_id in weekly_users:
+                    if food_entries:
+                        # Генерируем итог если нужно
+                        existing_summary = await habit_db.get_daily_summary(user_id, user_today)
+                        if not existing_summary:
+                            profile = await habit_db.get_user_profile(user_id)
+                            user_goal = profile.get('goal', 'maintain') if profile else 'maintain'
+                            summary = await generate_daily_summary(food_entries, user_goal)
+                            await habit_db.save_daily_summary(user_id, user_today, summary)
+
+                        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                            [InlineKeyboardButton(
+                                text="📊 Посмотреть итог",
+                                web_app={"url": f"{WEBAPP_URL_LOCAL}/summary"}
+                            )]
+                        ])
+                        try:
+                            await bot.send_message(
+                                user_id,
+                                "🌙 Твой вечерний итог готов!\n\n"
+                                "Посмотри, как прошёл день с точки зрения питания.",
+                                reply_markup=keyboard
+                            )
+                            log.info(f"Sent evening summary to {user_id} (local time: {user_current_time})")
+                        except Exception as e:
+                            log.warning(f"Failed to send evening summary to {user_id}: {e}")
+
+            # ---- Недельные обзоры (воскресенье в 12:00 по локальному времени пользователя) ----
+            weekly_users = await habit_db.get_users_for_weekly_review()
+            for user_id in weekly_users:
+                # Получаем timezone_offset пользователя
+                profile = await habit_db.get_user_profile(user_id)
+                if not profile:
+                    continue
+
+                timezone_offset = profile.get('timezone_offset', 180)
+                user_tz = timezone(timedelta(minutes=timezone_offset))
+                user_local_time = now_utc.astimezone(user_tz)
+                user_current_time = user_local_time.strftime('%H:%M')
+                user_weekday = user_local_time.weekday()
+
+                # Проверяем: воскресенье и 12:00 по локальному времени
+                if user_weekday == 6 and user_current_time == "12:00":
                     keyboard = InlineKeyboardMarkup(inline_keyboard=[
                         [InlineKeyboardButton(
                             text="📈 Посмотреть обзор",
@@ -353,7 +386,7 @@ async def notification_scheduler(bot):
                             "Посмотри паттерны и связи за прошедшую неделю.",
                             reply_markup=keyboard
                         )
-                        log.info(f"Sent weekly review to {user_id}")
+                        log.info(f"Sent weekly review to {user_id} (local time: {user_current_time})")
                     except Exception as e:
                         log.warning(f"Failed to send weekly review to {user_id}: {e}")
 
