@@ -299,7 +299,7 @@ export function Settings() {
                   haptic('selection');
                   setColorScheme(option.value);
                 }}
-                className="flex-1 py-2 px-3 rounded-xl text-sm font-medium transition-all flex items-center justify-center gap-2"
+                className="flex-1 py-2 px-2 rounded-xl text-xs font-medium transition-all flex items-center justify-center gap-1 min-w-0"
                 style={{
                   background:
                     colorScheme === option.value ? 'var(--accent)' : 'var(--bg-secondary)',
@@ -307,10 +307,10 @@ export function Settings() {
                 }}
               >
                 <div
-                  className="w-4 h-4 rounded-full"
+                  className="w-3 h-3 rounded-full flex-shrink-0"
                   style={{ background: option.color }}
                 />
-                {option.label}
+                <span className="truncate">{option.label}</span>
               </button>
             ))}
           </div>

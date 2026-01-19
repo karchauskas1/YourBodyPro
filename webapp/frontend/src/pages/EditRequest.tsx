@@ -75,9 +75,9 @@ export function EditRequest() {
   ];
 
   const activityLevels: { value: ActivityLevel; label: string }[] = [
-    { value: 'active', label: 'Активный' },
-    { value: 'medium', label: 'Средний' },
     { value: 'calm', label: 'Спокойный' },
+    { value: 'medium', label: 'Средний' },
+    { value: 'active', label: 'Активный' },
   ];
 
   return (
