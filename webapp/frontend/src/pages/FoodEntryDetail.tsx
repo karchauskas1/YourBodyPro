@@ -235,9 +235,12 @@ export function FoodEntryDetail() {
 
         {/* Fullness after */}
         <Card>
-          <h3 className="font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>
+          <h3 className="font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
             Сытость после еды
           </h3>
+          <p className="text-xs mb-3" style={{ color: 'var(--text-tertiary)' }}>
+            💡 Отметь сытость через 10-15 минут после еды, когда почувствуешь полное насыщение
+          </p>
           <div className="flex gap-2">
             {[1, 2, 3, 4, 5].map((level) => (
               <button
