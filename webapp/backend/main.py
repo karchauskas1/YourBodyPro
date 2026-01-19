@@ -47,6 +47,14 @@ class OnboardingData(BaseModel):
 
 class FoodEntryText(BaseModel):
     text: str
+    time: Optional[str] = None  # Формат 'HH:MM'
+    hunger_before: Optional[int] = None  # 1-5
+    fullness_after: Optional[int] = None  # 1-5
+
+
+class FoodEntryFeelings(BaseModel):
+    hunger_before: Optional[int] = None  # 1-5
+    fullness_after: Optional[int] = None  # 1-5
 
 
 class SleepEntry(BaseModel):
@@ -334,7 +342,10 @@ async def add_food_text(
         description=analysis.get('description', data.text),
         categories=analysis.get('categories'),
         raw_input=data.text,
-        source='webapp'
+        source='webapp',
+        custom_time=data.time,
+        hunger_before=data.hunger_before,
+        fullness_after=data.fullness_after
     )
 
     return {
@@ -348,6 +359,9 @@ async def add_food_text(
 async def add_food_photo(
     photo: UploadFile = File(...),
     context: str = Form(default=""),
+    time: Optional[str] = Form(default=None),
+    hunger_before: Optional[int] = Form(default=None),
+    fullness_after: Optional[int] = Form(default=None),
     user: Dict = Depends(get_current_user)
 ):
     """Добавить еду фото"""
@@ -378,7 +392,10 @@ async def add_food_photo(
             description=analysis.get('description', 'Фото еды'),
             categories=analysis.get('categories'),
             raw_input=context,
-            source='webapp'
+            source='webapp',
+            custom_time=time,
+            hunger_before=hunger_before,
+            fullness_after=fullness_after
         )
 
         return {
@@ -402,6 +419,24 @@ async def delete_food_entry(
     deleted = await db.delete_food_entry(user['user_id'], entry_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Entry not found")
+    return {"success": True}
+
+
+@app.patch("/api/food/{entry_id}/feelings")
+async def update_food_entry_feelings(
+    entry_id: int,
+    data: FoodEntryFeelings,
+    user: Dict = Depends(get_current_user)
+):
+    """Обновить оценки голода и сытости для существующей записи"""
+    updated = await db.update_food_entry_feelings(
+        entry_id=entry_id,
+        user_id=user['user_id'],
+        hunger_before=data.hunger_before,
+        fullness_after=data.fullness_after
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Entry not found or nothing to update")
     return {"success": True}
 
 

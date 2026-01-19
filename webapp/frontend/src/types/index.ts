@@ -49,6 +49,8 @@ export interface FoodEntry {
   categories?: FoodCategories;
   raw_input?: string;
   source: 'webapp' | 'telegram';
+  hunger_before?: number;  // 1-5
+  fullness_after?: number;  // 1-5
 }
 
 export interface FoodAnalysis {

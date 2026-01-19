@@ -40,6 +40,8 @@ CREATE TABLE IF NOT EXISTS food_entries (
     categories TEXT,              -- JSON: {"proteins": [...], "carbs": [...]}
     raw_input TEXT,               -- оригинальный текст пользователя
     source TEXT DEFAULT 'webapp', -- 'webapp' | 'telegram'
+    hunger_before INTEGER,        -- 1-5: голод перед едой
+    fullness_after INTEGER,       -- 1-5: сытость после еды (отмечать через 10-15 мин)
     created_at INTEGER
 );
 """
@@ -174,18 +176,21 @@ class HabitDB:
         photo_file_id: Optional[str] = None,
         categories: Optional[Dict] = None,
         raw_input: Optional[str] = None,
-        source: str = 'webapp'
+        source: str = 'webapp',
+        custom_time: Optional[str] = None,  # Формат 'HH:MM'
+        hunger_before: Optional[int] = None,  # 1-5
+        fullness_after: Optional[int] = None  # 1-5
     ) -> int:
         now = datetime.now(MSK)
         now_ts = int(now.timestamp())
         entry_date = now.strftime('%Y-%m-%d')
-        entry_time = now.strftime('%H:%M')
+        entry_time = custom_time if custom_time else now.strftime('%H:%M')
 
         cur = await self.conn.execute(
             """
             INSERT INTO food_entries
-            (user_id, entry_date, entry_time, description, photo_file_id, categories, raw_input, source, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (user_id, entry_date, entry_time, description, photo_file_id, categories, raw_input, source, hunger_before, fullness_after, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user_id,
@@ -196,18 +201,55 @@ class HabitDB:
                 json.dumps(categories) if categories else None,
                 raw_input,
                 source,
+                hunger_before,
+                fullness_after,
                 now_ts
             )
         )
         await self.conn.commit()
         return cur.lastrowid
 
+    async def update_food_entry_feelings(
+        self,
+        entry_id: int,
+        user_id: int,
+        hunger_before: Optional[int] = None,
+        fullness_after: Optional[int] = None
+    ) -> bool:
+        """Обновить оценки голода и сытости для существующей записи"""
+        updates = []
+        params = []
+
+        if hunger_before is not None:
+            updates.append("hunger_before = ?")
+            params.append(hunger_before)
+
+        if fullness_after is not None:
+            updates.append("fullness_after = ?")
+            params.append(fullness_after)
+
+        if not updates:
+            return False
+
+        params.extend([user_id, entry_id])
+
+        await self.conn.execute(
+            f"""
+            UPDATE food_entries
+            SET {', '.join(updates)}
+            WHERE user_id = ? AND id = ?
+            """,
+            tuple(params)
+        )
+        await self.conn.commit()
+        return True
+
     async def get_food_entries_for_date(
         self, user_id: int, date: str
     ) -> List[Dict[str, Any]]:
         cur = await self.conn.execute(
             """
-            SELECT id, entry_time, description, photo_file_id, categories, raw_input, source
+            SELECT id, entry_time, description, photo_file_id, categories, raw_input, source, hunger_before, fullness_after
             FROM food_entries
             WHERE user_id = ? AND entry_date = ?
             ORDER BY entry_time ASC
@@ -224,7 +266,9 @@ class HabitDB:
                 'photo_file_id': row[3],
                 'categories': json.loads(row[4]) if row[4] else None,
                 'raw_input': row[5],
-                'source': row[6]
+                'source': row[6],
+                'hunger_before': row[7],
+                'fullness_after': row[8]
             })
         return result
 

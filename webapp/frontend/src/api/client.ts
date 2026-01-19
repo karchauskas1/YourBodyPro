@@ -125,18 +125,43 @@ export const api = {
   getFoodByDate: (date: string) =>
     apiFetch<{ date: string; entries: FoodEntry[] }>(`/food/${date}`),
 
-  addFoodText: (text: string) =>
+  addFoodText: (
+    text: string,
+    time?: string,
+    hungerBefore?: number,
+    fullnessAfter?: number
+  ) =>
     apiFetch<{ success: boolean; entry_id: number; analysis: FoodAnalysis }>(
       '/food/text',
       {
         method: 'POST',
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({
+          text,
+          time,
+          hunger_before: hungerBefore,
+          fullness_after: fullnessAfter,
+        }),
       }
     ),
 
-  addFoodPhoto: (photo: File, context?: string) => {
+  addFoodPhoto: (
+    photo: File,
+    time?: string,
+    hungerBefore?: number,
+    fullnessAfter?: number,
+    context?: string
+  ) => {
     const formData = new FormData();
     formData.append('photo', photo);
+    if (time) {
+      formData.append('time', time);
+    }
+    if (hungerBefore !== undefined) {
+      formData.append('hunger_before', hungerBefore.toString());
+    }
+    if (fullnessAfter !== undefined) {
+      formData.append('fullness_after', fullnessAfter.toString());
+    }
     if (context) {
       formData.append('context', context);
     }
@@ -148,6 +173,19 @@ export const api = {
       }
     );
   },
+
+  updateFoodEntryFeelings: (
+    entryId: number,
+    hungerBefore?: number,
+    fullnessAfter?: number
+  ) =>
+    apiFetch<{ success: boolean }>(`/food/${entryId}/feelings`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        hunger_before: hungerBefore,
+        fullness_after: fullnessAfter,
+      }),
+    }),
 
   deleteFoodEntry: (entryId: number) =>
     apiFetch<{ success: boolean }>(`/food/${entryId}`, {

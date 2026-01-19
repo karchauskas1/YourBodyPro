@@ -5,9 +5,22 @@ import { useNavigate } from 'react-router-dom';
 import { Layout, Card, Button } from '../components/Layout';
 import { useTelegram } from '../hooks/useTelegram';
 import { api } from '../api/client';
-import { Camera, Type, X, Check, ArrowLeft, ImageIcon } from 'lucide-react';
+import { Camera, Type, X, Check, ArrowLeft, ImageIcon, Clock } from 'lucide-react';
 
 type InputMode = 'choice' | 'photo' | 'text';
+
+// Генерация временных меток с интервалом 15 минут
+const generateTimeOptions = () => {
+  const times = [];
+  for (let h = 0; h < 24; h++) {
+    for (let m = 0; m < 60; m += 15) {
+      const hour = h.toString().padStart(2, '0');
+      const minute = m.toString().padStart(2, '0');
+      times.push(`${hour}:${minute}`);
+    }
+  }
+  return times;
+};
 
 export function AddFood() {
   const navigate = useNavigate();
@@ -15,10 +28,20 @@ export function AddFood() {
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
 
+  // Текущее время по умолчанию (округленное до ближайших 15 минут)
+  const getCurrentTime = () => {
+    const now = new Date();
+    const hours = now.getHours();
+    const minutes = Math.round(now.getMinutes() / 15) * 15;
+    return `${hours.toString().padStart(2, '0')}:${minutes === 60 ? '00' : minutes.toString().padStart(2, '0')}`;
+  };
+
   const [mode, setMode] = useState<InputMode>('choice');
   const [text, setText] = useState('');
   const [photo, setPhoto] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [selectedTime, setSelectedTime] = useState(getCurrentTime());
+  const [hungerBefore, setHungerBefore] = useState<number | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -57,12 +80,14 @@ export function AddFood() {
         console.log('🔄 Starting photo upload:', {
           name: photo.name,
           size: `${(photo.size / 1024 / 1024).toFixed(2)} MB`,
-          type: photo.type
+          type: photo.type,
+          time: selectedTime,
+          hungerBefore
         });
-        const result = await api.addFoodPhoto(photo);
+        const result = await api.addFoodPhoto(photo, selectedTime, hungerBefore, undefined);
         console.log('✅ Photo uploaded successfully:', result);
       } else if (mode === 'text' && text.trim()) {
-        await api.addFoodText(text.trim());
+        await api.addFoodText(text.trim(), selectedTime, hungerBefore, undefined);
       } else {
         setError('Добавьте фото или описание');
         setIsLoading(false);
@@ -237,6 +262,60 @@ export function AddFood() {
             </div>
           )}
 
+          {/* Time selector */}
+          <div className="mb-6">
+            <label
+              className="flex items-center gap-2 text-sm font-medium mb-2"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              <Clock className="w-4 h-4" />
+              Время приёма пищи
+            </label>
+            <input
+              type="time"
+              value={selectedTime}
+              onChange={(e) => setSelectedTime(e.target.value)}
+              className="input-field"
+            />
+          </div>
+
+          {/* Hunger before meal */}
+          <div className="mb-6">
+            <label
+              className="text-sm font-medium mb-3 block"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              Насколько хотелось есть? (опционально)
+            </label>
+            <div className="flex gap-2">
+              {[1, 2, 3, 4, 5].map((level) => (
+                <button
+                  key={level}
+                  onClick={() => {
+                    haptic('selection');
+                    setHungerBefore(hungerBefore === level ? undefined : level);
+                  }}
+                  className="flex-1 py-3 px-2 rounded-xl text-sm font-medium transition-all"
+                  style={{
+                    background:
+                      hungerBefore === level ? 'var(--accent)' : 'var(--bg-secondary)',
+                    color: hungerBefore === level ? 'white' : 'var(--text-primary)',
+                  }}
+                >
+                  {level === 1 && '😐'}
+                  {level === 2 && '🙂'}
+                  {level === 3 && '😋'}
+                  {level === 4 && '😤'}
+                  {level === 5 && '🤤'}
+                  <div className="text-xs mt-1">{level}</div>
+                </button>
+              ))}
+            </div>
+            <p className="text-xs mt-2" style={{ color: 'var(--text-tertiary)' }}>
+              Голод: 1 - совсем не хотелось, 5 - очень голоден
+            </p>
+          </div>
+
           {error && (
             <div
               className="p-3 rounded-xl mb-4 text-sm"
@@ -272,6 +351,60 @@ export function AddFood() {
             />
             <p className="text-xs mt-2" style={{ color: 'var(--text-tertiary)' }}>
               Опиши еду своими словами, без граммов и калорий
+            </p>
+          </div>
+
+          {/* Time selector */}
+          <div className="mb-6">
+            <label
+              className="flex items-center gap-2 text-sm font-medium mb-2"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              <Clock className="w-4 h-4" />
+              Время приёма пищи
+            </label>
+            <input
+              type="time"
+              value={selectedTime}
+              onChange={(e) => setSelectedTime(e.target.value)}
+              className="input-field"
+            />
+          </div>
+
+          {/* Hunger before meal */}
+          <div className="mb-6">
+            <label
+              className="text-sm font-medium mb-3 block"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              Насколько хотелось есть? (опционально)
+            </label>
+            <div className="flex gap-2">
+              {[1, 2, 3, 4, 5].map((level) => (
+                <button
+                  key={level}
+                  onClick={() => {
+                    haptic('selection');
+                    setHungerBefore(hungerBefore === level ? undefined : level);
+                  }}
+                  className="flex-1 py-3 px-2 rounded-xl text-sm font-medium transition-all"
+                  style={{
+                    background:
+                      hungerBefore === level ? 'var(--accent)' : 'var(--bg-secondary)',
+                    color: hungerBefore === level ? 'white' : 'var(--text-primary)',
+                  }}
+                >
+                  {level === 1 && '😐'}
+                  {level === 2 && '🙂'}
+                  {level === 3 && '😋'}
+                  {level === 4 && '😤'}
+                  {level === 5 && '🤤'}
+                  <div className="text-xs mt-1">{level}</div>
+                </button>
+              ))}
+            </div>
+            <p className="text-xs mt-2" style={{ color: 'var(--text-tertiary)' }}>
+              Голод: 1 - совсем не хотелось, 5 - очень голоден
             </p>
           </div>
 

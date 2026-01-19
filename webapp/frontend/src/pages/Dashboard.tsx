@@ -21,9 +21,9 @@ import {
 } from 'lucide-react';
 
 // Food entry item
-function FoodItem({ entry }: { entry: FoodEntry }) {
+function FoodItem({ entry, onClick }: { entry: FoodEntry; onClick: () => void }) {
   return (
-    <div className="food-entry slide-up">
+    <div className="food-entry slide-up cursor-pointer" onClick={onClick}>
       <div
         className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
         style={{ background: 'var(--accent-soft)' }}
@@ -34,10 +34,28 @@ function FoodItem({ entry }: { entry: FoodEntry }) {
         <div className="font-medium truncate" style={{ color: 'var(--text-primary)' }}>
           {entry.description}
         </div>
-        <div className="text-sm" style={{ color: 'var(--text-tertiary)' }}>
-          {entry.time}
+        <div className="text-sm flex items-center gap-2" style={{ color: 'var(--text-tertiary)' }}>
+          <span>{entry.time}</span>
+          {entry.hunger_before && (
+            <span className="text-xs" title="Голод перед едой">
+              🍽️ {entry.hunger_before}
+            </span>
+          )}
+          {entry.fullness_after && (
+            <span className="text-xs" title="Сытость после еды">
+              ✅ {entry.fullness_after}
+            </span>
+          )}
         </div>
       </div>
+      {!entry.fullness_after && (
+        <div
+          className="text-xs px-2 py-1 rounded-lg"
+          style={{ background: 'var(--warning-soft)', color: 'var(--warning)' }}
+        >
+          Отметить сытость
+        </div>
+      )}
     </div>
   );
 }
@@ -85,6 +103,9 @@ export function Dashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedEntry, setSelectedEntry] = useState<FoodEntry | null>(null);
+  const [fullnessRating, setFullnessRating] = useState<number | undefined>(undefined);
+  const [isUpdating, setIsUpdating] = useState(false);
 
   useEffect(() => {
     loadDashboard();
@@ -102,6 +123,45 @@ export function Dashboard() {
       setError('Не удалось загрузить данные');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleFoodEntryClick = (entry: FoodEntry) => {
+    haptic('light');
+    setSelectedEntry(entry);
+    setFullnessRating(entry.fullness_after);
+  };
+
+  const handleUpdateFullness = async () => {
+    if (!selectedEntry || fullnessRating === undefined) return;
+
+    setIsUpdating(true);
+    haptic('medium');
+
+    try {
+      await api.updateFoodEntryFeelings(selectedEntry.id, undefined, fullnessRating);
+
+      // Обновляем локальные данные
+      if (data) {
+        const updatedEntries = data.food.entries.map((entry) =>
+          entry.id === selectedEntry.id
+            ? { ...entry, fullness_after: fullnessRating }
+            : entry
+        );
+        setData({
+          ...data,
+          food: { ...data.food, entries: updatedEntries },
+        });
+      }
+
+      haptic('success');
+      setSelectedEntry(null);
+      setFullnessRating(undefined);
+    } catch (err) {
+      console.error('Failed to update fullness:', err);
+      haptic('error');
+    } finally {
+      setIsUpdating(false);
     }
   };
 
@@ -180,7 +240,7 @@ export function Dashboard() {
             {data?.food.entries && data.food.entries.length > 0 ? (
               <div className="space-y-2">
                 {data.food.entries.slice(0, 3).map((entry) => (
-                  <FoodItem key={entry.id} entry={entry} />
+                  <FoodItem key={entry.id} entry={entry} onClick={() => handleFoodEntryClick(entry)} />
                 ))}
                 {data.food.entries.length > 3 && (
                   <button
@@ -383,6 +443,95 @@ export function Dashboard() {
           </button>
         )}
       </div>
+
+      {/* Fullness rating modal */}
+      {selectedEntry && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-end justify-center z-50 animate-in"
+          onClick={() => {
+            setSelectedEntry(null);
+            setFullnessRating(undefined);
+          }}
+        >
+          <div
+            className="w-full max-w-md p-6 rounded-t-3xl"
+            style={{ background: 'var(--bg-primary)' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-bold mb-2" style={{ color: 'var(--text-primary)' }}>
+              {selectedEntry.description}
+            </h3>
+            <p className="text-sm mb-1" style={{ color: 'var(--text-secondary)' }}>
+              Время: {selectedEntry.time}
+            </p>
+            {selectedEntry.hunger_before && (
+              <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
+                Голод перед едой: {selectedEntry.hunger_before}/5
+              </p>
+            )}
+
+            <div className="mb-6">
+              <label className="text-sm font-medium mb-3 block" style={{ color: 'var(--text-secondary)' }}>
+                Насколько насытился после еды?
+              </label>
+              <p className="text-xs mb-3" style={{ color: 'var(--text-tertiary)' }}>
+                💡 Отметь сытость через 10-15 минут после еды, когда почувствуешь полное насыщение
+              </p>
+              <div className="flex gap-2">
+                {[1, 2, 3, 4, 5].map((level) => (
+                  <button
+                    key={level}
+                    onClick={() => {
+                      haptic('selection');
+                      setFullnessRating(level);
+                    }}
+                    className="flex-1 py-3 px-2 rounded-xl text-sm font-medium transition-all"
+                    style={{
+                      background: fullnessRating === level ? 'var(--accent)' : 'var(--bg-secondary)',
+                      color: fullnessRating === level ? 'white' : 'var(--text-primary)',
+                    }}
+                  >
+                    {level === 1 && '😐'}
+                    {level === 2 && '🙂'}
+                    {level === 3 && '😊'}
+                    {level === 4 && '😌'}
+                    {level === 5 && '🤤'}
+                    <div className="text-xs mt-1">{level}</div>
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs mt-2" style={{ color: 'var(--text-tertiary)' }}>
+                1 - совсем не насытился, 5 - очень сыт
+              </p>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setSelectedEntry(null);
+                  setFullnessRating(undefined);
+                }}
+                className="flex-1 py-3 rounded-xl font-medium"
+                style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
+              >
+                Отмена
+              </button>
+              <button
+                onClick={handleUpdateFullness}
+                disabled={fullnessRating === undefined || isUpdating}
+                className="flex-1 py-3 rounded-xl font-medium"
+                style={{
+                  background: fullnessRating === undefined ? 'var(--bg-secondary)' : 'var(--accent)',
+                  color: fullnessRating === undefined ? 'var(--text-tertiary)' : 'white',
+                  opacity: isUpdating ? 0.5 : 1,
+                }}
+              >
+                {isUpdating ? 'Сохранение...' : 'Сохранить'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </Layout>
   );
 }
