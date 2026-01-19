@@ -46,12 +46,76 @@ export function AddFood() {
   };
 
   // Photo selection
-  const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Compress image before upload
+  const compressImage = async (file: File): Promise<File> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d')!;
+
+          // Calculate new dimensions (max 1920px on longest side)
+          let width = img.width;
+          let height = img.height;
+          const maxSize = 1920;
+
+          if (width > height && width > maxSize) {
+            height = (height / width) * maxSize;
+            width = maxSize;
+          } else if (height > maxSize) {
+            width = (width / height) * maxSize;
+            height = maxSize;
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+
+          // Draw and compress
+          ctx.drawImage(img, 0, 0, width, height);
+          canvas.toBlob(
+            (blob) => {
+              if (blob) {
+                const compressedFile = new File([blob], file.name, {
+                  type: 'image/jpeg',
+                  lastModified: Date.now(),
+                });
+                console.log('🗜️ Image compressed:', {
+                  original: `${(file.size / 1024 / 1024).toFixed(2)} MB`,
+                  compressed: `${(compressedFile.size / 1024 / 1024).toFixed(2)} MB`,
+                  reduction: `${(((file.size - compressedFile.size) / file.size) * 100).toFixed(1)}%`
+                });
+                resolve(compressedFile);
+              } else {
+                resolve(file);
+              }
+            },
+            'image/jpeg',
+            0.85 // 85% quality
+          );
+        };
+        img.src = e.target?.result as string;
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setPhoto(file);
-    setPhotoPreview(URL.createObjectURL(file));
+    console.log('📷 Original file:', {
+      name: file.name,
+      size: `${(file.size / 1024 / 1024).toFixed(2)} MB`,
+      type: file.type
+    });
+
+    // Compress image
+    const compressedFile = await compressImage(file);
+
+    setPhoto(compressedFile);
+    setPhotoPreview(URL.createObjectURL(compressedFile));
     setMode('photo');
     haptic('light');
   };
