@@ -319,3 +319,4 @@ export function FoodEntryDetail() {
 }
 
 export default FoodEntryDetail;
+
