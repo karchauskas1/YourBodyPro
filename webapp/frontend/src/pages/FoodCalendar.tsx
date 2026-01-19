@@ -6,13 +6,18 @@ import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, isToday } 
 import { ru } from 'date-fns/locale';
 import { Layout, Card, LoadingSpinner } from '../components/Layout';
 import { api } from '../api/client';
-import type { FoodEntry } from '../types';
+import type { FoodEntry, DailySummary as DailySummaryType } from '../types';
 import { useTelegram } from '../hooks/useTelegram';
-import { ArrowLeft, ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, X, Utensils, Sparkles, Lightbulb } from 'lucide-react';
 
 interface DayData {
   count: number;
   entries: FoodEntry[];
+}
+
+interface DaySummaryData {
+  summary: DailySummaryType | null;
+  loading: boolean;
 }
 
 export function FoodCalendar() {
@@ -23,6 +28,8 @@ export function FoodCalendar() {
   const [calendarData, setCalendarData] = useState<Record<string, DayData>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [daySummary, setDaySummary] = useState<DailySummaryType | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
 
   useEffect(() => {
     loadCalendarData();
@@ -53,10 +60,21 @@ export function FoodCalendar() {
     setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
   };
 
-  const handleDayClick = (dateStr: string) => {
+  const handleDayClick = async (dateStr: string) => {
     haptic('selection');
     if (calendarData[dateStr]) {
       setSelectedDay(dateStr);
+      setDaySummary(null);
+      setSummaryLoading(true);
+
+      try {
+        const response = await api.getSummaryByDate(dateStr);
+        setDaySummary(response.summary);
+      } catch (err) {
+        console.error('Failed to load day summary:', err);
+      } finally {
+        setSummaryLoading(false);
+      }
     }
   };
 
@@ -74,10 +92,11 @@ export function FoodCalendar() {
   const weekDays = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 
   // Get color based on entry count
+  // red = 1, orange = 2-3, green = 4+
   const getDayColor = (count: number): string => {
-    if (count >= 4) return 'var(--success)';
-    if (count >= 2) return 'var(--warning)';
-    if (count >= 1) return 'var(--accent)';
+    if (count >= 4) return 'var(--success)';  // green
+    if (count >= 2) return 'var(--warning)';  // orange
+    if (count >= 1) return 'var(--error)';    // red
     return 'transparent';
   };
 
@@ -189,7 +208,7 @@ export function FoodCalendar() {
             {/* Legend */}
             <div className="flex items-center justify-center gap-4 mt-4 pt-4 border-t" style={{ borderColor: 'var(--border)' }}>
               <div className="flex items-center gap-1">
-                <div className="w-2 h-2 rounded-full" style={{ background: 'var(--accent)' }} />
+                <div className="w-2 h-2 rounded-full" style={{ background: 'var(--error)' }} />
                 <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>1</span>
               </div>
               <div className="flex items-center gap-1">
@@ -214,7 +233,7 @@ export function FoodCalendar() {
         >
           <div
             className="w-full max-w-lg rounded-t-3xl p-6 animate-in slide-up"
-            style={{ background: 'var(--bg-primary)', maxHeight: '70vh', overflowY: 'auto' }}
+            style={{ background: 'var(--bg-primary)', maxHeight: '80vh', overflowY: 'auto' }}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-4">
@@ -230,26 +249,82 @@ export function FoodCalendar() {
               </button>
             </div>
 
-            <div className="space-y-3">
-              {calendarData[selectedDay].entries.map((entry, index) => (
-                <div
-                  key={entry.id || index}
-                  className="p-3 rounded-xl"
-                  style={{ background: 'var(--bg-secondary)' }}
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-                        {entry.description}
-                      </p>
-                      <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>
-                        {entry.time}
-                      </p>
+            {/* Food entries */}
+            <div className="mb-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Utensils className="w-4 h-4" style={{ color: 'var(--accent)' }} />
+                <h4 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                  Что съедено
+                </h4>
+              </div>
+              <div className="space-y-2">
+                {calendarData[selectedDay].entries.map((entry, index) => (
+                  <div
+                    key={entry.id || index}
+                    className="p-3 rounded-xl"
+                    style={{ background: 'var(--bg-secondary)' }}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                          {entry.description}
+                        </p>
+                        <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>
+                          {entry.time}
+                        </p>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
+
+            {/* Day summary */}
+            {summaryLoading ? (
+              <div className="flex justify-center py-4">
+                <LoadingSpinner />
+              </div>
+            ) : daySummary ? (
+              <div className="space-y-3 pt-4 border-t" style={{ borderColor: 'var(--border)' }}>
+                {/* Analysis */}
+                {daySummary.analysis && (
+                  <div
+                    className="p-3 rounded-xl"
+                    style={{ background: 'var(--bg-secondary)' }}
+                  >
+                    <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                      {daySummary.analysis}
+                    </p>
+                  </div>
+                )}
+
+                {/* Balance note */}
+                {daySummary.balance_note && (
+                  <div
+                    className="flex items-start gap-2 p-3 rounded-xl"
+                    style={{ background: 'var(--accent-soft)' }}
+                  >
+                    <Sparkles className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: 'var(--accent)' }} />
+                    <p className="text-sm" style={{ color: 'var(--text-primary)' }}>
+                      {daySummary.balance_note}
+                    </p>
+                  </div>
+                )}
+
+                {/* Suggestion */}
+                {daySummary.suggestion && (
+                  <div
+                    className="flex items-start gap-2 p-3 rounded-xl"
+                    style={{ background: 'var(--success-soft)' }}
+                  >
+                    <Lightbulb className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: 'var(--success)' }} />
+                    <p className="text-sm" style={{ color: 'var(--text-primary)' }}>
+                      {daySummary.suggestion}
+                    </p>
+                  </div>
+                )}
+              </div>
+            ) : null}
           </div>
         </div>
       )}
