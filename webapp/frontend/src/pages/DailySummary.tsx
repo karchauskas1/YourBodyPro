@@ -47,6 +47,7 @@ export function DailySummary() {
   const handleRecalculate = async () => {
     try {
       setIsRecalculating(true);
+      setNoData(false);
       haptic('medium');
 
       const response = await api.recalculateSummary();
@@ -54,6 +55,15 @@ export function DailySummary() {
       if (response.summary) {
         setSummary(response.summary);
         haptic('success');
+      } else {
+        // Если итог не был создан, попробуем загрузить заново
+        const todayResponse = await api.getTodaySummary();
+        if (todayResponse.summary) {
+          setSummary(todayResponse.summary);
+          haptic('success');
+        } else {
+          setNoData(true);
+        }
       }
     } catch (err) {
       console.error('Failed to recalculate summary:', err);
@@ -98,17 +108,31 @@ export function DailySummary() {
   if (noData) {
     return (
       <Layout>
-        <div className="flex items-center gap-3 mb-6">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => navigate(-1)}
+              className="p-2 rounded-xl transition-colors"
+              style={{ background: 'var(--bg-glass)' }}
+            >
+              <ArrowLeft className="w-5 h-5" style={{ color: 'var(--text-primary)' }} />
+            </button>
+            <h1 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
+              Итог дня
+            </h1>
+          </div>
           <button
-            onClick={() => navigate(-1)}
+            onClick={handleRecalculate}
+            disabled={isRecalculating}
             className="p-2 rounded-xl transition-colors"
             style={{ background: 'var(--bg-glass)' }}
+            title="Обновить"
           >
-            <ArrowLeft className="w-5 h-5" style={{ color: 'var(--text-primary)' }} />
+            <RefreshCw
+              className={`w-5 h-5 ${isRecalculating ? 'animate-spin' : ''}`}
+              style={{ color: 'var(--accent)' }}
+            />
           </button>
-          <h1 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
-            Итог дня
-          </h1>
         </div>
 
         <EmptyState
