@@ -29,6 +29,7 @@ export function AddFood() {
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [selectedTime, setSelectedTime] = useState(getCurrentTime());
   const [hungerBefore, setHungerBefore] = useState<number | undefined>(undefined);
+  const [fullnessAfter, setFullnessAfter] = useState<number | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -133,12 +134,13 @@ export function AddFood() {
           size: `${(photo.size / 1024 / 1024).toFixed(2)} MB`,
           type: photo.type,
           time: selectedTime,
-          hungerBefore
+          hungerBefore,
+          fullnessAfter
         });
-        const result = await api.addFoodPhoto(photo, selectedTime, hungerBefore, undefined);
+        const result = await api.addFoodPhoto(photo, selectedTime, hungerBefore, fullnessAfter);
         console.log('✅ Photo uploaded successfully:', result);
       } else if (mode === 'text' && text.trim()) {
-        await api.addFoodText(text.trim(), selectedTime, hungerBefore, undefined);
+        await api.addFoodText(text.trim(), selectedTime, hungerBefore, fullnessAfter);
       } else {
         setError('Добавьте фото или описание');
         setIsLoading(false);
@@ -336,7 +338,7 @@ export function AddFood() {
               className="text-sm font-medium mb-3 block"
               style={{ color: 'var(--text-secondary)' }}
             >
-              Насколько хотелось есть? (опционально)
+              Голод перед едой (опционально)
             </label>
             <div className="flex gap-2">
               {[1, 2, 3, 4, 5].map((level) => (
@@ -363,7 +365,47 @@ export function AddFood() {
               ))}
             </div>
             <p className="text-xs mt-2" style={{ color: 'var(--text-tertiary)' }}>
-              Голод: 1 - совсем не хотелось, 5 - очень голоден
+              1 - очень голоден, 5 - очень сыт
+            </p>
+          </div>
+
+          {/* Fullness after meal */}
+          <div className="mb-6">
+            <label
+              className="text-sm font-medium mb-3 block"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              Сытость после еды (опционально)
+            </label>
+            <div className="flex gap-2">
+              {[1, 2, 3, 4, 5].map((level) => (
+                <button
+                  key={level}
+                  onClick={() => {
+                    haptic('selection');
+                    setFullnessAfter(fullnessAfter === level ? undefined : level);
+                  }}
+                  className="flex-1 py-3 px-2 rounded-xl text-sm font-medium transition-all"
+                  style={{
+                    background:
+                      fullnessAfter === level ? 'var(--accent)' : 'var(--bg-secondary)',
+                    color: fullnessAfter === level ? 'white' : 'var(--text-primary)',
+                  }}
+                >
+                  {level === 1 && '😐'}
+                  {level === 2 && '🙂'}
+                  {level === 3 && '😋'}
+                  {level === 4 && '😤'}
+                  {level === 5 && '🤤'}
+                  <div className="text-xs mt-1">{level}</div>
+                </button>
+              ))}
+            </div>
+            <p className="text-xs mt-2" style={{ color: 'var(--text-tertiary)' }}>
+              💡 Отметь сытость через 10-15 минут после еды
+            </p>
+            <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>
+              1 - совсем не насытился, 5 - очень сыт
             </p>
           </div>
 
@@ -428,7 +470,7 @@ export function AddFood() {
               className="text-sm font-medium mb-3 block"
               style={{ color: 'var(--text-secondary)' }}
             >
-              Насколько хотелось есть? (опционально)
+              Голод перед едой (опционально)
             </label>
             <div className="flex gap-2">
               {[1, 2, 3, 4, 5].map((level) => (
@@ -455,7 +497,47 @@ export function AddFood() {
               ))}
             </div>
             <p className="text-xs mt-2" style={{ color: 'var(--text-tertiary)' }}>
-              Голод: 1 - совсем не хотелось, 5 - очень голоден
+              1 - очень голоден, 5 - очень сыт
+            </p>
+          </div>
+
+          {/* Fullness after meal */}
+          <div className="mb-6">
+            <label
+              className="text-sm font-medium mb-3 block"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              Сытость после еды (опционально)
+            </label>
+            <div className="flex gap-2">
+              {[1, 2, 3, 4, 5].map((level) => (
+                <button
+                  key={level}
+                  onClick={() => {
+                    haptic('selection');
+                    setFullnessAfter(fullnessAfter === level ? undefined : level);
+                  }}
+                  className="flex-1 py-3 px-2 rounded-xl text-sm font-medium transition-all"
+                  style={{
+                    background:
+                      fullnessAfter === level ? 'var(--accent)' : 'var(--bg-secondary)',
+                    color: fullnessAfter === level ? 'white' : 'var(--text-primary)',
+                  }}
+                >
+                  {level === 1 && '😐'}
+                  {level === 2 && '🙂'}
+                  {level === 3 && '😋'}
+                  {level === 4 && '😤'}
+                  {level === 5 && '🤤'}
+                  <div className="text-xs mt-1">{level}</div>
+                </button>
+              ))}
+            </div>
+            <p className="text-xs mt-2" style={{ color: 'var(--text-tertiary)' }}>
+              💡 Отметь сытость через 10-15 минут после еды
+            </p>
+            <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>
+              1 - совсем не насытился, 5 - очень сыт
             </p>
           </div>
 

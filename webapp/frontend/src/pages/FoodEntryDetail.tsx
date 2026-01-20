@@ -229,7 +229,7 @@ export function FoodEntryDetail() {
             ))}
           </div>
           <p className="text-xs mt-2" style={{ color: 'var(--text-tertiary)' }}>
-            1 - совсем не голоден, 5 - очень голоден
+            1 - очень голоден, 5 - очень сыт
           </p>
         </Card>
 
