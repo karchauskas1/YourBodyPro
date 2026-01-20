@@ -1,6 +1,5 @@
 // Subscription Onboarding - показываем когда нет подписки
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Layout, Button } from '../components/Layout';
 import { useTelegram } from '../hooks/useTelegram';
 import { ChevronLeft, ChevronRight, Sparkles } from 'lucide-react';
@@ -65,7 +64,6 @@ const slides = [
 ];
 
 export function SubscriptionOnboarding() {
-  const navigate = useNavigate();
   const { haptic, openLink } = useTelegram();
   const [currentSlide, setCurrentSlide] = useState(0);
 
