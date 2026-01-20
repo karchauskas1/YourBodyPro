@@ -89,8 +89,14 @@ function AuthenticatedApp() {
         setAuthenticated(true);
       } else {
         console.error('Auth error:', error);
-        // In development, allow access without Telegram
-        if (import.meta.env.DEV && !isAvailable) {
+
+        // Если есть Telegram данные, но авторизация не прошла - показываем онбординг
+        // (скорее всего проблема с подпиской, а не с auth)
+        if (isAvailable && window.Telegram?.WebApp?.initData) {
+          setSubscriptionActive(false);
+          setAuthenticated(true);
+        } else if (import.meta.env.DEV && !isAvailable) {
+          // In development, allow access without Telegram
           setAuthenticated(true);
           setSubscriptionActive(true);
         } else {
