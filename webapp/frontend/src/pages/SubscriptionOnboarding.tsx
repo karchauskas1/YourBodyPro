@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { Layout, Button } from '../components/Layout';
 import { useTelegram } from '../hooks/useTelegram';
+import { api } from '../api/client';
 import { ChevronLeft, ChevronRight, Sparkles } from 'lucide-react';
 
 const MONTH_PRICE = import.meta.env.VITE_MONTH_PRICE || '490';
@@ -65,6 +66,7 @@ const slides = [
 export function SubscriptionOnboarding() {
   const { haptic, openLink } = useTelegram();
   const [currentSlide, setCurrentSlide] = useState(0);
+  const [isCreatingPayment, setIsCreatingPayment] = useState(false);
 
   const handleNext = () => {
     haptic('light');
@@ -80,10 +82,24 @@ export function SubscriptionOnboarding() {
     }
   };
 
-  const handleSubscribe = () => {
+  const handleSubscribe = async () => {
     haptic('medium');
-    // Открываем бота с командой /start для оформления подписки
-    openLink('https://t.me/YourBodyPet_bot?start=subscribe');
+    setIsCreatingPayment(true);
+
+    try {
+      // Создаём платёж через API
+      const payment = await api.createPayment();
+
+      // Открываем страницу оплаты YooKassa
+      openLink(payment.confirmation_url);
+    } catch (error) {
+      console.error('Failed to create payment:', error);
+      haptic('error');
+      // Если не получилось создать платёж, открываем бота как fallback
+      openLink('https://t.me/YourBodyPet_bot?start=subscribe');
+    } finally {
+      setIsCreatingPayment(false);
+    }
   };
 
   const slide = slides[currentSlide];
@@ -176,12 +192,13 @@ export function SubscriptionOnboarding() {
 
             <Button
               onClick={slide.isFinal ? handleSubscribe : handleNext}
+              loading={isCreatingPayment}
               className="flex-1"
             >
               {slide.isFinal ? (
                 <>
                   <Sparkles className="w-5 h-5 mr-2" />
-                  Оформить подписку
+                  {isCreatingPayment ? 'Создание платежа...' : 'Оформить подписку'}
                 </>
               ) : (
                 <>

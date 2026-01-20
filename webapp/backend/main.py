@@ -31,6 +31,11 @@ load_dotenv(os.path.join(os.path.dirname(__file__), '../../.env'))
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 MSK = timezone(timedelta(hours=3))
 
+# YooKassa configuration
+YOOKASSA_SHOP_ID = os.getenv("SHOP_ID", "")
+YOOKASSA_SECRET_KEY = os.getenv("SHOP_SECRET_KEY", "")
+MONTH_PRICE = int(os.getenv("MONTH_PRICE", "3690"))
+
 
 # ============ Pydantic Models ============
 
@@ -716,6 +721,85 @@ async def get_dashboard(user: Dict = Depends(get_current_user)):
             "data": daily_summary
         }
     }
+
+
+@app.post("/api/payment/create")
+async def create_payment(
+    user: Dict = Depends(get_current_user_optional)
+):
+    """Создать платёж YooKassa для подписки"""
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    try:
+        import uuid
+        import requests
+        from requests.auth import HTTPBasicAuth
+
+        # Генерируем уникальный ID платежа
+        idempotence_key = str(uuid.uuid4())
+
+        # Создаём платёж через YooKassa API
+        url = "https://api.yookassa.ru/v3/payments"
+        headers = {
+            "Idempotence-Key": idempotence_key,
+            "Content-Type": "application/json"
+        }
+
+        payload = {
+            "amount": {
+                "value": f"{MONTH_PRICE}.00",
+                "currency": "RUB"
+            },
+            "confirmation": {
+                "type": "redirect",
+                "return_url": os.getenv("WEBAPP_URL", "https://yourbody.app")
+            },
+            "capture": True,
+            "description": "Подписка YourBody PRO (30 дней)",
+            "metadata": {
+                "user_id": user['user_id'],
+                "username": user.get('username', ''),
+                "source": "webapp"
+            }
+        }
+
+        response = requests.post(
+            url,
+            json=payload,
+            headers=headers,
+            auth=HTTPBasicAuth(YOOKASSA_SHOP_ID, YOOKASSA_SECRET_KEY),
+            timeout=10
+        )
+
+        if response.status_code != 200:
+            print(f"YooKassa API error: {response.status_code} {response.text}")
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to create payment"
+            )
+
+        payment_data = response.json()
+        confirmation_url = payment_data.get("confirmation", {}).get("confirmation_url")
+
+        if not confirmation_url:
+            raise HTTPException(
+                status_code=500,
+                detail="No confirmation URL in payment response"
+            )
+
+        return {
+            "payment_id": payment_data["id"],
+            "confirmation_url": confirmation_url,
+            "amount": MONTH_PRICE
+        }
+
+    except requests.RequestException as e:
+        print(f"Payment creation error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Payment service error: {str(e)}"
+        )
 
 
 if __name__ == "__main__":

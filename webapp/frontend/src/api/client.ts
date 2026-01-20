@@ -251,6 +251,13 @@ export const api = {
 
   // Dashboard
   getDashboard: () => apiFetch<DashboardData>('/dashboard'),
+
+  // Payment
+  createPayment: () =>
+    apiFetch<{ payment_id: string; confirmation_url: string; amount: number }>(
+      '/payment/create',
+      { method: 'POST' }
+    ),
 };
 
 export default api;
