@@ -8,6 +8,7 @@ import type {
   WeeklySummary,
   UserProfile,
   OnboardingData,
+  WorkoutEntry,
 } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
@@ -221,6 +222,26 @@ export const api = {
     apiFetch<{ success: boolean }>('/sleep', {
       method: 'POST',
       body: JSON.stringify({ score, date }),
+    }),
+
+  // Workout Tracker
+  addWorkout: (workoutName: string, durationMinutes: number, intensity: number, date?: string) =>
+    apiFetch<{ success: boolean; workout_id: number }>('/workouts', {
+      method: 'POST',
+      body: JSON.stringify({
+        workout_name: workoutName,
+        duration_minutes: durationMinutes,
+        intensity,
+        date,
+      }),
+    }),
+
+  getWorkoutsByDate: (date: string) =>
+    apiFetch<{ date: string; workouts: WorkoutEntry[] }>(`/workouts/${date}`),
+
+  deleteWorkout: (workoutId: number) =>
+    apiFetch<{ success: boolean }>(`/workouts/${workoutId}`, {
+      method: 'DELETE',
     }),
 
   // Daily Summary

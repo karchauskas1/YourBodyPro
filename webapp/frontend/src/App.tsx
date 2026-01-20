@@ -13,6 +13,7 @@ import { LoadingSpinner } from './components/Layout';
 import { Dashboard } from './pages/Dashboard';
 import { Onboarding } from './pages/Onboarding';
 import { AddFood } from './pages/AddFood';
+import { AddWorkout } from './pages/AddWorkout';
 import { FoodList } from './pages/FoodList';
 import { FoodEntryDetail } from './pages/FoodEntryDetail';
 import { Sleep } from './pages/Sleep';
@@ -197,6 +198,12 @@ function AuthenticatedApp() {
         path="/food"
         element={
           needsOnboarding ? <Navigate to="/onboarding" replace /> : <FoodList />
+        }
+      />
+      <Route
+        path="/workout/add"
+        element={
+          needsOnboarding ? <Navigate to="/onboarding" replace /> : <AddWorkout />
         }
       />
       <Route

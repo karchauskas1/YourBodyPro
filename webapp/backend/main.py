@@ -73,6 +73,13 @@ class SleepEntry(BaseModel):
     date: Optional[str] = None  # '2025-01-18'
 
 
+class WorkoutEntry(BaseModel):
+    workout_name: str
+    duration_minutes: int
+    intensity: int  # 1-5
+    date: Optional[str] = None  # '2025-01-18'
+
+
 class UserProfile(BaseModel):
     user_id: int
     goal: Optional[str] = None
@@ -534,6 +541,52 @@ async def add_sleep_entry(
         data.date
     )
     return {"success": success}
+
+
+# --- Workout Tracker ---
+
+@app.post("/api/workouts")
+async def add_workout(
+    data: WorkoutEntry,
+    user: Dict = Depends(get_current_user)
+):
+    """Добавить тренировку"""
+    if not 1 <= data.intensity <= 5:
+        raise HTTPException(status_code=400, detail="Intensity must be 1-5")
+
+    if data.duration_minutes <= 0:
+        raise HTTPException(status_code=400, detail="Duration must be positive")
+
+    workout_id = await db.add_workout_entry(
+        user['user_id'],
+        data.workout_name,
+        data.duration_minutes,
+        data.intensity,
+        data.date
+    )
+    return {"success": True, "workout_id": workout_id}
+
+
+@app.get("/api/workouts/{date}")
+async def get_workouts_by_date(
+    date: str,
+    user: Dict = Depends(get_current_user)
+):
+    """Получить тренировки за определенную дату"""
+    workouts = await db.get_workout_entries_for_date(user['user_id'], date)
+    return {"date": date, "workouts": workouts}
+
+
+@app.delete("/api/workouts/{workout_id}")
+async def delete_workout(
+    workout_id: int,
+    user: Dict = Depends(get_current_user)
+):
+    """Удалить тренировку"""
+    deleted = await db.delete_workout_entry(user['user_id'], workout_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Workout not found")
+    return {"success": True}
 
 
 # --- Daily Summary ---
