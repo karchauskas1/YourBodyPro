@@ -27,6 +27,7 @@ export function AddFood() {
   const [text, setText] = useState('');
   const [photo, setPhoto] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [photoDescription, setPhotoDescription] = useState(''); // Описание к фото для нейронки
   const [selectedTime, setSelectedTime] = useState(getCurrentTime());
   const [hungerBefore, setHungerBefore] = useState<number | undefined>(undefined);
   const [fullnessAfter, setFullnessAfter] = useState<number | undefined>(undefined);
@@ -42,6 +43,7 @@ export function AddFood() {
       setText('');
       setPhoto(null);
       setPhotoPreview(null);
+      setPhotoDescription('');
       setError(null);
     }
   };
@@ -135,9 +137,16 @@ export function AddFood() {
           type: photo.type,
           time: selectedTime,
           hungerBefore,
-          fullnessAfter
+          fullnessAfter,
+          description: photoDescription
         });
-        const result = await api.addFoodPhoto(photo, selectedTime, hungerBefore, fullnessAfter);
+        const result = await api.addFoodPhoto(
+          photo,
+          selectedTime,
+          hungerBefore,
+          fullnessAfter,
+          photoDescription.trim() || undefined
+        );
         console.log('✅ Photo uploaded successfully:', result);
       } else if (mode === 'text' && text.trim()) {
         await api.addFoodText(text.trim(), selectedTime, hungerBefore, fullnessAfter);
@@ -314,6 +323,26 @@ export function AddFood() {
               </button>
             </div>
           )}
+
+          {/* Photo description */}
+          <div className="mb-6">
+            <label
+              className="block text-sm font-medium mb-2"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              Что на фото? (опционально)
+            </label>
+            <input
+              type="text"
+              value={photoDescription}
+              onChange={(e) => setPhotoDescription(e.target.value)}
+              placeholder="Например: овсяноблин с творогом"
+              className="input-field"
+            />
+            <p className="text-xs mt-2" style={{ color: 'var(--text-tertiary)' }}>
+              💡 Помоги нейронке понять, что именно ты съел
+            </p>
+          </div>
 
           {/* Time selector */}
           <div className="mb-6">
