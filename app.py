@@ -109,6 +109,12 @@ def _csv_append(path: str, row: list[str]):
     except Exception as e:
         log.error("CSV append failed (%s): %s", path, e)
 
+def log_cancellation(user_id: int, reason: str):
+    """Логирует отмену подписки в CSV файл"""
+    _csv_append(CANCELS_CSV, [
+        now_iso(), str(user_id), "", "", reason
+    ])
+
 bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
 bot_username_cache: Optional[str] = None
@@ -665,6 +671,7 @@ async def cancel_final(cb: CallbackQuery):
         cb.from_user.full_name
     )
     await db.save_cancellation(cb.from_user.id, reason_key)
+    log_cancellation(cb.from_user.id, reason_key)
 
     # 2) Пытаемся удалить из группы
     kicked = await ensure_user_removed(cb.from_user.id)
@@ -1178,6 +1185,76 @@ async def comp_cmd_fallback(m: Message, t: Optional[str]):
     if re.match(r"^/comp(\b|@)", txt, flags=re.IGNORECASE):
         await _do_comp(m)
 
+# ---- /revoke: админ отменяет подписку пользователя ----
+@dp.message(Command("revoke"))
+async def revoke_subscription_cmd(m: Message):
+    if not _is_admin_id(m.from_user.id):
+        await m.answer("Команда доступна только админам.")
+        return
+
+    parts = m.text.strip().split()
+    if len(parts) != 2:
+        await m.answer("Формат: <code>/revoke &lt;user_id|@username&gt;</code>")
+        return
+
+    target_raw = parts[1]
+    uid: Optional[int] = None
+
+    if target_raw.startswith("@"):
+        uid = await db.get_user_id_by_username(target_raw)
+        if uid is None:
+            await m.answer(f"Не нашёл пользователя по нику {target_raw}.")
+            return
+    else:
+        try:
+            uid = int(target_raw)
+        except Exception:
+            await m.answer("user_id должен быть числом или используйте @username.")
+            return
+
+    # Проверяем есть ли пользователь в БД
+    row = await db.get_user(uid)
+    if not row:
+        await m.answer(f"Пользователь {uid} не найден в базе данных.")
+        return
+
+    # Проверяем активна ли подписка
+    if not is_active(row.expires_at):
+        await m.answer(f"У пользователя {uid} ({row.username or row.full_name}) уже нет активной подписки.")
+        return
+
+    # Отменяем подписку (устанавливаем expires_at в прошлое)
+    await db.set_user_expires(
+        uid,
+        now_ts() - 1,  # в прошлом
+        row.username,
+        row.full_name
+    )
+    await db.save_cancellation(uid, "admin_revoke")
+    log_cancellation(uid, "admin_revoke")
+
+    # Пытаемся кикнуть из группы
+    kicked = await ensure_user_removed(uid)
+    kick_status = "кикнут из группы" if kicked else "не удалось кикнуть (возможно уже вышел)"
+
+    # Уведомляем админа
+    user_info = row.username if row.username else row.full_name or f"ID {uid}"
+    await m.answer(
+        f"✅ Подписка отменена для пользователя {user_info}\n"
+        f"— Статус: {kick_status}\n"
+        f"— Дата отмены: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"
+    )
+
+    # Уведомляем пользователя
+    try:
+        await bot.send_message(
+            uid,
+            "⚠️ Ваша подписка была отменена администратором.\n"
+            "Если у вас есть вопросы, напишите @petukhovaas"
+        )
+    except Exception as e:
+        log.warning(f"Не удалось отправить уведомление пользователю {uid}: {e}")
+
 # ---- Habit Tracker Integration ----
 # Импортируем обработчики habit tracker
 try:
@@ -1211,6 +1288,7 @@ async def on_startup():
         BotCommand(command="status", description="Статус подписки"),
         BotCommand(command="cancel_subscription", description="Отменить подписку"),
         BotCommand(command="comp", description="(admin) Выдать подписку"),
+        BotCommand(command="revoke", description="(admin) Отменить подписку пользователя"),
         BotCommand(command="myid", description="Показать мой ID"),
     ]
 
