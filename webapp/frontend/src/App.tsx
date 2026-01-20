@@ -21,6 +21,7 @@ import { WeeklySummary } from './pages/WeeklySummary';
 import { Settings } from './pages/Settings';
 import { EditRequest } from './pages/EditRequest';
 import { NoSubscription } from './pages/NoSubscription';
+import { SubscriptionOnboarding } from './pages/SubscriptionOnboarding';
 import { FoodCalendar } from './pages/FoodCalendar';
 
 import './index.css';
@@ -152,9 +153,9 @@ function AuthenticatedApp() {
     );
   }
 
-  // No subscription
+  // No subscription - показываем онбординг
   if (isAuthenticated && !subscriptionActive) {
-    return <NoSubscription />;
+    return <SubscriptionOnboarding />;
   }
 
   // Check if needs onboarding
