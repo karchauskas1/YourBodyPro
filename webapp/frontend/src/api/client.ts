@@ -129,7 +129,8 @@ export const api = {
     text: string,
     time?: string,
     hungerBefore?: number,
-    fullnessAfter?: number
+    fullnessAfter?: number,
+    ateWithoutGadgets?: boolean
   ) =>
     apiFetch<{ success: boolean; entry_id: number; analysis: FoodAnalysis }>(
       '/food/text',
@@ -140,6 +141,7 @@ export const api = {
           time,
           hunger_before: hungerBefore,
           fullness_after: fullnessAfter,
+          ate_without_gadgets: ateWithoutGadgets,
         }),
       }
     ),
@@ -149,7 +151,8 @@ export const api = {
     time?: string,
     hungerBefore?: number,
     fullnessAfter?: number,
-    context?: string
+    context?: string,
+    ateWithoutGadgets?: boolean
   ) => {
     const formData = new FormData();
     formData.append('photo', photo);
@@ -164,6 +167,9 @@ export const api = {
     }
     if (context) {
       formData.append('context', context);
+    }
+    if (ateWithoutGadgets !== undefined) {
+      formData.append('ate_without_gadgets', ateWithoutGadgets.toString());
     }
     return apiFetch<{ success: boolean; entry_id: number; analysis: FoodAnalysis }>(
       '/food/photo',

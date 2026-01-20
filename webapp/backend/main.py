@@ -43,6 +43,7 @@ class OnboardingData(BaseModel):
     goal: str  # 'maintain' | 'lose' | 'gain'
     training_type: str  # 'marathon' | 'own' | 'mixed'
     activity_level: str  # 'active' | 'medium' | 'calm'
+    gender: str  # 'male' | 'female'
     food_tracker_enabled: bool = False
     sleep_tracker_enabled: bool = False
     weekly_review_enabled: bool = False
@@ -55,6 +56,7 @@ class FoodEntryText(BaseModel):
     time: Optional[str] = None  # Формат 'HH:MM'
     hunger_before: Optional[int] = None  # 1-5
     fullness_after: Optional[int] = None  # 1-5
+    ate_without_gadgets: Optional[bool] = None
 
 
 class FoodEntryFeelings(BaseModel):
@@ -284,6 +286,7 @@ async def save_onboarding(
         'goal': data.goal,
         'training_type': data.training_type,
         'activity_level': data.activity_level,
+        'gender': data.gender,
         'food_tracker_enabled': 1 if data.food_tracker_enabled else 0,
         'sleep_tracker_enabled': 1 if data.sleep_tracker_enabled else 0,
         'weekly_review_enabled': 1 if data.weekly_review_enabled else 0,
@@ -301,7 +304,7 @@ async def update_settings(
 ):
     """Обновить отдельные настройки"""
     allowed_fields = {
-        'goal', 'training_type', 'activity_level',
+        'goal', 'training_type', 'activity_level', 'gender',
         'food_tracker_enabled', 'sleep_tracker_enabled', 'weekly_review_enabled',
         'evening_summary_time', 'morning_question_time'
     }
@@ -354,7 +357,8 @@ async def add_food_text(
         source='webapp',
         custom_time=data.time,
         hunger_before=data.hunger_before,
-        fullness_after=data.fullness_after
+        fullness_after=data.fullness_after,
+        ate_without_gadgets=data.ate_without_gadgets or False
     )
 
     return {
@@ -371,6 +375,7 @@ async def add_food_photo(
     time: Optional[str] = Form(default=None),
     hunger_before: Optional[int] = Form(default=None),
     fullness_after: Optional[int] = Form(default=None),
+    ate_without_gadgets: Optional[str] = Form(default=None),
     user: Dict = Depends(get_current_user)
 ):
     """Добавить еду фото"""
@@ -404,7 +409,8 @@ async def add_food_photo(
             source='webapp',
             custom_time=time,
             hunger_before=hunger_before,
-            fullness_after=fullness_after
+            fullness_after=fullness_after,
+            ate_without_gadgets=ate_without_gadgets == 'true' if ate_without_gadgets else False
         )
 
         return {

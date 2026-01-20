@@ -6,7 +6,7 @@ import { Layout, Button, Card } from '../components/Layout';
 import { useStore } from '../store/useStore';
 import { useTelegram } from '../hooks/useTelegram';
 import { api } from '../api/client';
-import type { Goal, TrainingType, ActivityLevel, OnboardingData } from '../types';
+import type { Goal, TrainingType, ActivityLevel, Gender, OnboardingData } from '../types';
 import {
   Target,
   Dumbbell,
@@ -14,7 +14,8 @@ import {
   Moon,
   Calendar,
   ChevronRight,
-  Check
+  Check,
+  User
 } from 'lucide-react';
 
 // Step 1: Welcome with motivation
@@ -312,7 +313,74 @@ function GoalStep({
   );
 }
 
-// Step 3: Training type & activity
+// Step 3: Gender selection
+function GenderStep({
+  value,
+  onChange,
+  onNext
+}: {
+  value: Gender | null;
+  onChange: (gender: Gender) => void;
+  onNext: () => void;
+}) {
+  const { haptic } = useTelegram();
+
+  const genders: { value: Gender; label: string; emoji: string }[] = [
+    { value: 'male', label: 'Мужчина', emoji: '👨' },
+    { value: 'female', label: 'Женщина', emoji: '👩' },
+  ];
+
+  return (
+    <div className="animate-in">
+      <div className="text-center mb-8">
+        <div
+          className="w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4"
+          style={{ background: 'var(--accent-soft)' }}
+        >
+          <User className="w-7 h-7" style={{ color: 'var(--accent)' }} />
+        </div>
+        <h2 className="text-xl font-bold mb-2" style={{ color: 'var(--text-primary)' }}>
+          Укажи свой пол
+        </h2>
+        <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+          Это поможет персонализировать анализ питания и тренировок
+        </p>
+      </div>
+
+      <div className="space-y-3 mb-8">
+        {genders.map((gender) => (
+          <div
+            key={gender.value}
+            className={`option-card ${value === gender.value ? 'selected' : ''}`}
+            onClick={() => {
+              haptic('selection');
+              onChange(gender.value);
+            }}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <span className="text-3xl">{gender.emoji}</span>
+                <div className="font-medium" style={{ color: 'var(--text-primary)' }}>
+                  {gender.label}
+                </div>
+              </div>
+              {value === gender.value && (
+                <Check className="w-5 h-5" style={{ color: 'var(--accent)' }} />
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <Button onClick={onNext} disabled={!value} className="w-full">
+        Далее
+        <ChevronRight className="inline-block ml-2 w-5 h-5" />
+      </Button>
+    </div>
+  );
+}
+
+// Step 4: Training type & activity
 function TrainingStep({
   trainingType,
   activityLevel,
@@ -584,7 +652,7 @@ export function Onboarding() {
   const [step, setStep] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
 
-  const totalSteps = 7; // Welcome + 3 info screens + Goal + Training + Features
+  const totalSteps = 8; // Welcome + 3 info screens + Goal + Gender + Training + Features
 
   const handleNext = () => {
     haptic('light');
@@ -592,7 +660,7 @@ export function Onboarding() {
   };
 
   const handleComplete = async () => {
-    if (!onboardingData.goal || !onboardingData.training_type || !onboardingData.activity_level) {
+    if (!onboardingData.goal || !onboardingData.gender || !onboardingData.training_type || !onboardingData.activity_level) {
       return;
     }
 
@@ -607,6 +675,7 @@ export function Onboarding() {
         goal: onboardingData.goal,
         training_type: onboardingData.training_type,
         activity_level: onboardingData.activity_level,
+        gender: onboardingData.gender,
         food_tracker_enabled: onboardingData.food_tracker_enabled,
         sleep_tracker_enabled: onboardingData.sleep_tracker_enabled,
         weekly_review_enabled: onboardingData.weekly_review_enabled,
@@ -669,6 +738,14 @@ export function Onboarding() {
       )}
 
       {step === 5 && (
+        <GenderStep
+          value={onboardingData.gender}
+          onChange={(gender) => updateOnboardingData({ gender })}
+          onNext={handleNext}
+        />
+      )}
+
+      {step === 6 && (
         <TrainingStep
           trainingType={onboardingData.training_type}
           activityLevel={onboardingData.activity_level}
@@ -678,7 +755,7 @@ export function Onboarding() {
         />
       )}
 
-      {step === 6 && (
+      {step === 7 && (
         <FeaturesStep
           data={{
             food_tracker_enabled: onboardingData.food_tracker_enabled,

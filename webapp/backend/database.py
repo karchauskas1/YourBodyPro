@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS user_profiles (
     goal TEXT,                    -- 'maintain' | 'lose' | 'gain'
     training_type TEXT,           -- 'marathon' | 'own' | 'mixed'
     activity_level TEXT,          -- 'active' | 'medium' | 'calm'
+    gender TEXT,                  -- 'male' | 'female'
     food_tracker_enabled INTEGER DEFAULT 0,
     sleep_tracker_enabled INTEGER DEFAULT 0,
     weekly_review_enabled INTEGER DEFAULT 0,
@@ -42,6 +43,7 @@ CREATE TABLE IF NOT EXISTS food_entries (
     source TEXT DEFAULT 'webapp', -- 'webapp' | 'telegram'
     hunger_before INTEGER,        -- 1-5: голод перед едой
     fullness_after INTEGER,       -- 1-5: сытость после еды (отмечать через 10-15 мин)
+    ate_without_gadgets INTEGER DEFAULT 0,  -- 0 | 1: ел без гаджетов
     created_at INTEGER
 );
 """
@@ -54,6 +56,18 @@ CREATE TABLE IF NOT EXISTS sleep_entries (
     score INTEGER,                -- 1-5
     created_at INTEGER,
     UNIQUE(user_id, entry_date)
+);
+"""
+
+DDL_WORKOUT_ENTRIES = """
+CREATE TABLE IF NOT EXISTS workout_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    entry_date TEXT,              -- '2025-01-18'
+    workout_name TEXT,            -- название тренировки
+    duration_minutes INTEGER,     -- длительность в минутах
+    intensity INTEGER,            -- 1-5 (1=Light, 5=Intensive)
+    created_at INTEGER
 );
 """
 
@@ -82,6 +96,7 @@ CREATE TABLE IF NOT EXISTS weekly_summaries (
 DDL_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_food_user_date ON food_entries(user_id, entry_date)",
     "CREATE INDEX IF NOT EXISTS idx_sleep_user_date ON sleep_entries(user_id, entry_date)",
+    "CREATE INDEX IF NOT EXISTS idx_workout_user_date ON workout_entries(user_id, entry_date)",
     "CREATE INDEX IF NOT EXISTS idx_daily_user_date ON daily_summaries(user_id, summary_date)",
     "CREATE INDEX IF NOT EXISTS idx_weekly_user_week ON weekly_summaries(user_id, week_start)",
 ]
@@ -104,6 +119,7 @@ class HabitDB:
         await self.conn.execute(DDL_USER_PROFILES)
         await self.conn.execute(DDL_FOOD_ENTRIES)
         await self.conn.execute(DDL_SLEEP_ENTRIES)
+        await self.conn.execute(DDL_WORKOUT_ENTRIES)
         await self.conn.execute(DDL_DAILY_SUMMARIES)
         await self.conn.execute(DDL_WEEKLY_SUMMARIES)
         for idx in DDL_INDEXES:
@@ -179,7 +195,8 @@ class HabitDB:
         source: str = 'webapp',
         custom_time: Optional[str] = None,  # Формат 'HH:MM'
         hunger_before: Optional[int] = None,  # 1-5
-        fullness_after: Optional[int] = None  # 1-5
+        fullness_after: Optional[int] = None,  # 1-5
+        ate_without_gadgets: bool = False  # ел без гаджетов
     ) -> int:
         now = datetime.now(MSK)
         now_ts = int(now.timestamp())
@@ -189,8 +206,8 @@ class HabitDB:
         cur = await self.conn.execute(
             """
             INSERT INTO food_entries
-            (user_id, entry_date, entry_time, description, photo_file_id, categories, raw_input, source, hunger_before, fullness_after, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (user_id, entry_date, entry_time, description, photo_file_id, categories, raw_input, source, hunger_before, fullness_after, ate_without_gadgets, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user_id,
@@ -203,6 +220,7 @@ class HabitDB:
                 source,
                 hunger_before,
                 fullness_after,
+                1 if ate_without_gadgets else 0,
                 now_ts
             )
         )
@@ -249,7 +267,7 @@ class HabitDB:
     ) -> List[Dict[str, Any]]:
         cur = await self.conn.execute(
             """
-            SELECT id, entry_time, description, photo_file_id, categories, raw_input, source, hunger_before, fullness_after
+            SELECT id, entry_time, description, photo_file_id, categories, raw_input, source, hunger_before, fullness_after, ate_without_gadgets
             FROM food_entries
             WHERE user_id = ? AND entry_date = ?
             ORDER BY entry_time ASC
@@ -268,7 +286,8 @@ class HabitDB:
                 'raw_input': row[5],
                 'source': row[6],
                 'hunger_before': row[7],
-                'fullness_after': row[8]
+                'fullness_after': row[8],
+                'ate_without_gadgets': bool(row[9])
             })
         return result
 
@@ -352,6 +371,65 @@ class HabitDB:
         for date in dates:
             result[date] = await self.get_sleep_entry(user_id, date)
         return result
+
+    # ============ Workout Entries ============
+
+    async def add_workout_entry(
+        self,
+        user_id: int,
+        workout_name: str,
+        duration_minutes: int,
+        intensity: int,
+        date: Optional[str] = None
+    ) -> int:
+        """Добавить тренировку"""
+        now = datetime.now(MSK)
+        now_ts = int(now.timestamp())
+        entry_date = date or now.strftime('%Y-%m-%d')
+
+        cur = await self.conn.execute(
+            """
+            INSERT INTO workout_entries
+            (user_id, entry_date, workout_name, duration_minutes, intensity, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (user_id, entry_date, workout_name, duration_minutes, intensity, now_ts)
+        )
+        await self.conn.commit()
+        return cur.lastrowid
+
+    async def get_workout_entries_for_date(
+        self, user_id: int, date: str
+    ) -> List[Dict[str, Any]]:
+        """Получить все тренировки за день"""
+        cur = await self.conn.execute(
+            """
+            SELECT id, workout_name, duration_minutes, intensity
+            FROM workout_entries
+            WHERE user_id = ? AND entry_date = ?
+            ORDER BY created_at ASC
+            """,
+            (user_id, date)
+        )
+        rows = await cur.fetchall()
+        return [
+            {
+                'id': row[0],
+                'workout_name': row[1],
+                'duration_minutes': row[2],
+                'intensity': row[3]
+            }
+            for row in rows
+        ]
+
+    async def delete_workout_entry(self, user_id: int, workout_id: int) -> bool:
+        """Удалить тренировку"""
+        cur = await self.conn.execute(
+            "DELETE FROM workout_entries WHERE id = ? AND user_id = ?",
+            (workout_id, user_id)
+        )
+        await self.conn.commit()
+        return cur.rowcount > 0
 
     # ============ Daily Summaries ============
 

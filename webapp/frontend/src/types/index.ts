@@ -3,6 +3,7 @@
 export type Goal = 'maintain' | 'lose' | 'gain';
 export type TrainingType = 'marathon' | 'own' | 'mixed';
 export type ActivityLevel = 'active' | 'medium' | 'calm';
+export type Gender = 'male' | 'female';
 
 // Theme types
 export type ThemeMode = 'light' | 'dark' | 'system';
@@ -13,6 +14,7 @@ export interface UserProfile {
   goal: Goal | null;
   training_type: TrainingType | null;
   activity_level: ActivityLevel | null;
+  gender: Gender | null;
   food_tracker_enabled: boolean;
   sleep_tracker_enabled: boolean;
   weekly_review_enabled: boolean;
@@ -51,6 +53,7 @@ export interface FoodEntry {
   source: 'webapp' | 'telegram';
   hunger_before?: number;  // 1-5
   fullness_after?: number;  // 1-5
+  ate_without_gadgets?: boolean;
 }
 
 export interface FoodAnalysis {
@@ -96,12 +99,20 @@ export interface OnboardingData {
   goal: Goal;
   training_type: TrainingType;
   activity_level: ActivityLevel;
+  gender: Gender;
   food_tracker_enabled: boolean;
   sleep_tracker_enabled: boolean;
   weekly_review_enabled: boolean;
   evening_summary_time: string;
   morning_question_time: string;
   timezone_offset?: number;
+}
+
+export interface WorkoutEntry {
+  id: number;
+  workout_name: string;
+  duration_minutes: number;
+  intensity: number;  // 1-5
 }
 
 // Telegram WebApp types

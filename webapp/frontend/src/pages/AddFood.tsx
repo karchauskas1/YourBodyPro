@@ -1,10 +1,11 @@
 // Add Food page - photo or text input
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Layout, Card, Button } from '../components/Layout';
 import { useTelegram } from '../hooks/useTelegram';
 import { api } from '../api/client';
+import { useStore } from '../store/useStore';
 import { Camera, Type, X, Check, ArrowLeft, ImageIcon, Clock } from 'lucide-react';
 
 type InputMode = 'choice' | 'photo' | 'text';
@@ -12,6 +13,7 @@ type InputMode = 'choice' | 'photo' | 'text';
 export function AddFood() {
   const navigate = useNavigate();
   const { haptic } = useTelegram();
+  const { profile } = useStore();
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
 
@@ -31,8 +33,19 @@ export function AddFood() {
   const [selectedTime, setSelectedTime] = useState(getCurrentTime());
   const [hungerBefore, setHungerBefore] = useState<number | undefined>(undefined);
   const [fullnessAfter, setFullnessAfter] = useState<number | undefined>(undefined);
+  const [ateWithoutGadgets, setAteWithoutGadgets] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Get text based on gender
+  const getGenderText = () => {
+    if (profile?.gender === 'male') {
+      return 'Я ел без гаджетов';
+    } else if (profile?.gender === 'female') {
+      return 'Я ела без гаджетов';
+    }
+    return 'Я ел/ела без гаджетов';
+  };
 
   // Back button
   const handleBack = () => {
@@ -145,11 +158,12 @@ export function AddFood() {
           selectedTime,
           hungerBefore,
           fullnessAfter,
-          photoDescription.trim() || undefined
+          photoDescription.trim() || undefined,
+          ateWithoutGadgets
         );
         console.log('✅ Photo uploaded successfully:', result);
       } else if (mode === 'text' && text.trim()) {
-        await api.addFoodText(text.trim(), selectedTime, hungerBefore, fullnessAfter);
+        await api.addFoodText(text.trim(), selectedTime, hungerBefore, fullnessAfter, ateWithoutGadgets);
       } else {
         setError('Добавьте фото или описание');
         setIsLoading(false);
@@ -438,6 +452,38 @@ export function AddFood() {
             </p>
           </div>
 
+          {/* Ate without gadgets */}
+          <div className="mb-6">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <div
+                className="flex items-center justify-center w-6 h-6 rounded-lg border-2 transition-all"
+                style={{
+                  borderColor: ateWithoutGadgets ? 'var(--accent)' : 'var(--border)',
+                  background: ateWithoutGadgets ? 'var(--accent)' : 'transparent',
+                }}
+                onClick={() => {
+                  haptic('selection');
+                  setAteWithoutGadgets(!ateWithoutGadgets);
+                }}
+              >
+                {ateWithoutGadgets && <Check className="w-4 h-4 text-white" />}
+              </div>
+              <span
+                className="text-sm font-medium flex-1"
+                style={{ color: 'var(--text-primary)' }}
+                onClick={() => {
+                  haptic('selection');
+                  setAteWithoutGadgets(!ateWithoutGadgets);
+                }}
+              >
+                {getGenderText()}
+              </span>
+            </label>
+            <p className="text-xs mt-2 ml-9" style={{ color: 'var(--text-tertiary)' }}>
+              💡 Осознанное питание без отвлечения на телефон или компьютер
+            </p>
+          </div>
+
           {error && (
             <div
               className="p-3 rounded-xl mb-4 text-sm"
@@ -567,6 +613,38 @@ export function AddFood() {
             </p>
             <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>
               1 - совсем не насытился, 5 - очень сыт
+            </p>
+          </div>
+
+          {/* Ate without gadgets */}
+          <div className="mb-6">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <div
+                className="flex items-center justify-center w-6 h-6 rounded-lg border-2 transition-all"
+                style={{
+                  borderColor: ateWithoutGadgets ? 'var(--accent)' : 'var(--border)',
+                  background: ateWithoutGadgets ? 'var(--accent)' : 'transparent',
+                }}
+                onClick={() => {
+                  haptic('selection');
+                  setAteWithoutGadgets(!ateWithoutGadgets);
+                }}
+              >
+                {ateWithoutGadgets && <Check className="w-4 h-4 text-white" />}
+              </div>
+              <span
+                className="text-sm font-medium flex-1"
+                style={{ color: 'var(--text-primary)' }}
+                onClick={() => {
+                  haptic('selection');
+                  setAteWithoutGadgets(!ateWithoutGadgets);
+                }}
+              >
+                {getGenderText()}
+              </span>
+            </label>
+            <p className="text-xs mt-2 ml-9" style={{ color: 'var(--text-tertiary)' }}>
+              💡 Осознанное питание без отвлечения на телефон или компьютер
             </p>
           </div>
 

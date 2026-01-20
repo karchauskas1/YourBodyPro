@@ -2,7 +2,7 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { UserProfile, TelegramUser, DashboardData, Goal, TrainingType, ActivityLevel, ThemeMode, ColorScheme } from '../types';
+import type { UserProfile, TelegramUser, DashboardData, Goal, TrainingType, ActivityLevel, Gender, ThemeMode, ColorScheme } from '../types';
 
 // Helper to get system theme
 const getSystemTheme = (): 'light' | 'dark' => {
@@ -34,6 +34,7 @@ interface AppState {
     goal: Goal | null;
     training_type: TrainingType | null;
     activity_level: ActivityLevel | null;
+    gender: Gender | null;
     food_tracker_enabled: boolean;
     sleep_tracker_enabled: boolean;
     weekly_review_enabled: boolean;
@@ -65,6 +66,7 @@ const initialOnboardingData = {
   goal: null,
   training_type: null,
   activity_level: null,
+  gender: null,
   food_tracker_enabled: false,
   sleep_tracker_enabled: false,
   weekly_review_enabled: false,
