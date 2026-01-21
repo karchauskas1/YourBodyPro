@@ -124,7 +124,33 @@ class HabitDB:
         await self.conn.execute(DDL_WEEKLY_SUMMARIES)
         for idx in DDL_INDEXES:
             await self.conn.execute(idx)
+
+        # Migrations for existing tables
+        await self._run_migrations()
+
         await self.conn.commit()
+
+    async def _run_migrations(self):
+        """Run migrations to add new columns to existing tables"""
+        # Get existing columns in user_profiles
+        cur = await self.conn.execute("PRAGMA table_info(user_profiles)")
+        columns = {row[1] for row in await cur.fetchall()}
+
+        # Add gender column if missing
+        if 'gender' not in columns:
+            await self.conn.execute(
+                "ALTER TABLE user_profiles ADD COLUMN gender TEXT"
+            )
+
+        # Get existing columns in food_entries
+        cur = await self.conn.execute("PRAGMA table_info(food_entries)")
+        columns = {row[1] for row in await cur.fetchall()}
+
+        # Add ate_without_gadgets column if missing
+        if 'ate_without_gadgets' not in columns:
+            await self.conn.execute(
+                "ALTER TABLE food_entries ADD COLUMN ate_without_gadgets INTEGER DEFAULT 0"
+            )
 
     async def close(self):
         if self.conn:
