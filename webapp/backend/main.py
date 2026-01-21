@@ -614,12 +614,24 @@ async def get_today_summary(user: Dict = Depends(get_current_user)):
     # Получаем профиль пользователя
     profile = await db.get_user_profile(user['user_id'])
     user_goal = profile.get('goal', 'maintain') if profile else 'maintain'
+    user_gender = profile.get('gender') if profile else None
+    user_activity_level = profile.get('activity_level') if profile else None
 
-    # Генерируем итог
+    # Получаем тренировки за сегодня
+    workouts = await db.get_workout_entries_for_date(user['user_id'], today)
+
+    # Получаем оценку сна за сегодня
+    sleep_entry = await db.get_sleep_entry_for_date(user['user_id'], today)
+    sleep_score = sleep_entry.get('score') if sleep_entry else None
+
+    # Генерируем итог с учетом всех факторов
     summary = await generate_daily_summary(
         food_entries,
         user_goal,
-        has_training_today=False  # TODO: интеграция с календарём тренировок
+        user_gender=user_gender,
+        user_activity_level=user_activity_level,
+        workouts=workouts,
+        sleep_score=sleep_score
     )
 
     # Сохраняем
@@ -644,8 +656,23 @@ async def get_summary_by_date(
 
         profile = await db.get_user_profile(user['user_id'])
         user_goal = profile.get('goal', 'maintain') if profile else 'maintain'
+        user_gender = profile.get('gender') if profile else None
+        user_activity_level = profile.get('activity_level') if profile else None
 
-        summary = await generate_daily_summary(food_entries, user_goal)
+        workouts = await db.get_workout_entries_for_date(user['user_id'], date)
+
+        # Получаем оценку сна за эту дату
+        sleep_entry = await db.get_sleep_entry_for_date(user['user_id'], date)
+        sleep_score = sleep_entry.get('score') if sleep_entry else None
+
+        summary = await generate_daily_summary(
+            food_entries,
+            user_goal,
+            user_gender=user_gender,
+            user_activity_level=user_activity_level,
+            workouts=workouts,
+            sleep_score=sleep_score
+        )
         await db.save_daily_summary(user['user_id'], date, summary)
 
     return {"date": date, "summary": summary}
@@ -669,12 +696,24 @@ async def recalculate_summary(user: Dict = Depends(get_current_user)):
     # Получаем профиль пользователя
     profile = await db.get_user_profile(user['user_id'])
     user_goal = profile.get('goal', 'maintain') if profile else 'maintain'
+    user_gender = profile.get('gender') if profile else None
+    user_activity_level = profile.get('activity_level') if profile else None
 
-    # Генерируем новый итог
+    # Получаем тренировки за сегодня
+    workouts = await db.get_workout_entries_for_date(user['user_id'], today)
+
+    # Получаем оценку сна за сегодня
+    sleep_entry = await db.get_sleep_entry_for_date(user['user_id'], today)
+    sleep_score = sleep_entry.get('score') if sleep_entry else None
+
+    # Генерируем новый итог с учетом всех факторов
     summary = await generate_daily_summary(
         food_entries,
         user_goal,
-        has_training_today=False
+        user_gender=user_gender,
+        user_activity_level=user_activity_level,
+        workouts=workouts,
+        sleep_score=sleep_score
     )
 
     # Перезаписываем в БД
@@ -705,6 +744,7 @@ async def get_current_weekly(user: Dict = Depends(get_current_user)):
     # Собираем данные за неделю
     food_data = await db.get_food_entries_for_week(user['user_id'], week_start)
     sleep_data = await db.get_sleep_entries_for_week(user['user_id'], week_start)
+    workout_data = await db.get_workout_entries_for_week(user['user_id'], week_start)
 
     # Проверяем, есть ли данные
     has_data = any(food_data.values()) or any(v is not None for v in sleep_data.values())
@@ -718,9 +758,18 @@ async def get_current_weekly(user: Dict = Depends(get_current_user)):
     # Получаем профиль
     profile = await db.get_user_profile(user['user_id'])
     user_goal = profile.get('goal', 'maintain') if profile else 'maintain'
+    user_gender = profile.get('gender') if profile else None
+    user_activity_level = profile.get('activity_level') if profile else None
 
-    # Генерируем обзор
-    summary = await generate_weekly_summary(food_data, sleep_data, user_goal)
+    # Генерируем умный обзор с паттернами
+    summary = await generate_weekly_summary(
+        food_data,
+        sleep_data,
+        workout_data,
+        user_goal,
+        user_gender=user_gender,
+        user_activity_level=user_activity_level
+    )
 
     # Сохраняем
     await db.save_weekly_summary(user['user_id'], week_start, summary)
@@ -739,6 +788,7 @@ async def get_weekly_by_date(
     if not summary:
         food_data = await db.get_food_entries_for_week(user['user_id'], week_start)
         sleep_data = await db.get_sleep_entries_for_week(user['user_id'], week_start)
+        workout_data = await db.get_workout_entries_for_week(user['user_id'], week_start)
 
         has_data = any(food_data.values()) or any(v is not None for v in sleep_data.values())
         if not has_data:
@@ -746,8 +796,17 @@ async def get_weekly_by_date(
 
         profile = await db.get_user_profile(user['user_id'])
         user_goal = profile.get('goal', 'maintain') if profile else 'maintain'
+        user_gender = profile.get('gender') if profile else None
+        user_activity_level = profile.get('activity_level') if profile else None
 
-        summary = await generate_weekly_summary(food_data, sleep_data, user_goal)
+        summary = await generate_weekly_summary(
+            food_data,
+            sleep_data,
+            workout_data,
+            user_goal,
+            user_gender=user_gender,
+            user_activity_level=user_activity_level
+        )
         await db.save_weekly_summary(user['user_id'], week_start, summary)
 
     return {"week_start": week_start, "summary": summary}

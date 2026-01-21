@@ -457,6 +457,19 @@ class HabitDB:
         await self.conn.commit()
         return cur.rowcount > 0
 
+    async def get_workout_entries_for_week(
+        self, user_id: int, week_start: str
+    ) -> Dict[str, List[Dict]]:
+        """Получить тренировки за неделю (week_start - понедельник)"""
+        from datetime import datetime as dt
+        start = dt.strptime(week_start, '%Y-%m-%d')
+        dates = [(start + timedelta(days=i)).strftime('%Y-%m-%d') for i in range(7)]
+
+        result = {}
+        for date in dates:
+            result[date] = await self.get_workout_entries_for_date(user_id, date)
+        return result
+
     # ============ Daily Summaries ============
 
     async def save_daily_summary(

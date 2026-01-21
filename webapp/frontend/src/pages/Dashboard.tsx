@@ -8,7 +8,7 @@ import { Layout, PageHeader, Card, Button, LoadingSpinner, EmptyState } from '..
 import { useStore } from '../store/useStore';
 import { useTelegram } from '../hooks/useTelegram';
 import { api } from '../api/client';
-import type { DashboardData, FoodEntry } from '../types';
+import type { DashboardData, FoodEntry, WorkoutEntry } from '../types';
 import {
   Utensils,
   Moon,
@@ -17,7 +17,8 @@ import {
   BarChart3,
   Settings,
   Sparkles,
-  Calendar
+  Calendar,
+  Dumbbell
 } from 'lucide-react';
 
 // Food entry item
@@ -101,6 +102,7 @@ export function Dashboard() {
   const { haptic } = useTelegram();
   const { profile, setDashboard } = useStore();
   const [data, setData] = useState<DashboardData | null>(null);
+  const [workouts, setWorkouts] = useState<WorkoutEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -115,6 +117,16 @@ export function Dashboard() {
       const dashboardData = await api.getDashboard();
       setData(dashboardData);
       setDashboard(dashboardData);
+
+      // Load today's workouts
+      const today = new Date().toISOString().split('T')[0];
+      try {
+        const workoutsData = await api.getWorkoutsByDate(today);
+        setWorkouts(workoutsData.workouts || []);
+      } catch {
+        // Silently fail if workouts can't be loaded
+        setWorkouts([]);
+      }
     } catch (err) {
       console.error('Failed to load dashboard:', err);
       setError('Не удалось загрузить данные');
@@ -268,6 +280,75 @@ export function Dashboard() {
             </div>
           </Card>
         )}
+
+        {/* Workout Tracker Card */}
+        <Card className="animate-in">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Dumbbell className="w-5 h-5" style={{ color: 'var(--accent)' }} />
+              <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>
+                Тренировки
+              </h3>
+            </div>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                haptic('light');
+                navigate('/workout/add');
+              }}
+              className="whitespace-nowrap flex items-center gap-1"
+            >
+              <Plus className="w-4 h-4 flex-shrink-0" />
+              Добавить
+            </Button>
+          </div>
+
+          {workouts.length > 0 ? (
+            <div className="space-y-2">
+              {workouts.map((workout) => {
+                const intensityLabels = ['😌 Легкая', '🙂 Легкая+', '😊 Средняя', '💪 Интенсивная', '🔥 Очень интенсивная'];
+                return (
+                  <div
+                    key={workout.id}
+                    className="flex items-center gap-3 p-3 rounded-xl"
+                    style={{ background: 'var(--bg-secondary)' }}
+                  >
+                    <div
+                      className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+                      style={{ background: 'var(--accent-soft)' }}
+                    >
+                      <Dumbbell className="w-5 h-5" style={{ color: 'var(--accent)' }} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium truncate" style={{ color: 'var(--text-primary)' }}>
+                        {workout.workout_name}
+                      </div>
+                      <div className="text-sm flex items-center gap-2" style={{ color: 'var(--text-tertiary)' }}>
+                        <span>{workout.duration_minutes} мин</span>
+                        <span>•</span>
+                        <span>{intensityLabels[workout.intensity - 1]}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div
+              className="py-6 text-center rounded-xl"
+              style={{ background: 'var(--bg-secondary)' }}
+            >
+              <Dumbbell
+                className="w-8 h-8 mx-auto mb-2"
+                style={{ color: 'var(--text-tertiary)' }}
+              />
+              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                Нет тренировок сегодня
+              </p>
+            </div>
+          )}
+        </Card>
 
         {/* Daily Summary Card */}
         {profile?.food_tracker_enabled && (

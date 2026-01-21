@@ -67,14 +67,23 @@ export interface DailySummary {
   foods_list: string[];
   analysis: string;
   balance_note: string;
+  timing_note?: string | null;
   suggestion?: string | null;
   error?: string;
 }
 
 export interface WeeklySummary {
+  week_overview?: string;
   food_diversity_by_day: Record<string, 'высокое' | 'среднее' | 'низкое'>;
   sleep_average: number | null;
-  patterns: string[];
+  sleep_food_patterns?: string[];
+  workout_patterns?: string[] | null;
+  timing_patterns?: string[];
+  balance_insights?: string[];
+  mindful_eating_note?: string | null;
+  key_pattern?: string | null;
+  // Legacy fields for backwards compatibility
+  patterns?: string[];
   food_sleep_connection?: string | null;
   error?: string;
 }
