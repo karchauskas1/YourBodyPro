@@ -248,39 +248,6 @@ export function Dashboard() {
           </Card>
         )}
 
-        {/* Sleep Tracker Card */}
-        {profile?.sleep_tracker_enabled && (
-          <Card
-            className="animate-in"
-            onClick={() => {
-              if (!data?.sleep.score) {
-                haptic('light');
-                navigate('/sleep');
-              }
-            }}
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div
-                  className="w-10 h-10 rounded-xl flex items-center justify-center"
-                  style={{ background: 'var(--accent-soft)' }}
-                >
-                  <Moon className="w-5 h-5" style={{ color: 'var(--accent)' }} />
-                </div>
-                <div>
-                  <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>
-                    Сон
-                  </h3>
-                  <SleepScore score={data?.sleep.score ?? null} />
-                </div>
-              </div>
-              {!data?.sleep.score && (
-                <ChevronRight className="w-5 h-5" style={{ color: 'var(--text-tertiary)' }} />
-              )}
-            </div>
-          </Card>
-        )}
-
         {/* Workout Tracker Card */}
         <Card className="animate-in">
           <div className="flex items-center justify-between mb-4">
@@ -349,6 +316,39 @@ export function Dashboard() {
             </div>
           )}
         </Card>
+
+        {/* Sleep Tracker Card */}
+        {profile?.sleep_tracker_enabled && (
+          <Card
+            className="animate-in"
+            onClick={() => {
+              if (!data?.sleep.score) {
+                haptic('light');
+                navigate('/sleep');
+              }
+            }}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div
+                  className="w-10 h-10 rounded-xl flex items-center justify-center"
+                  style={{ background: 'var(--accent-soft)' }}
+                >
+                  <Moon className="w-5 h-5" style={{ color: 'var(--accent)' }} />
+                </div>
+                <div>
+                  <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>
+                    Сон
+                  </h3>
+                  <SleepScore score={data?.sleep.score ?? null} />
+                </div>
+              </div>
+              {!data?.sleep.score && (
+                <ChevronRight className="w-5 h-5" style={{ color: 'var(--text-tertiary)' }} />
+              )}
+            </div>
+          </Card>
+        )}
 
         {/* Daily Summary Card */}
         {profile?.food_tracker_enabled && (
