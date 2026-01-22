@@ -386,6 +386,13 @@ class HabitDB:
         row = await cur.fetchone()
         return row[0] if row else None
 
+    async def get_sleep_entry_for_date(self, user_id: int, date: str) -> Optional[Dict[str, Any]]:
+        """Получить запись о сне за конкретную дату (возвращает словарь)"""
+        score = await self.get_sleep_entry(user_id, date)
+        if score is not None:
+            return {'score': score}
+        return None
+
     async def get_sleep_entries_for_week(
         self, user_id: int, week_start: str
     ) -> Dict[str, Optional[int]]:
