@@ -129,20 +129,66 @@ async def analyze_food_photo(
             )
             response.raise_for_status()
             data = response.json()
+
+            # Проверяем наличие ответа
+            if not data.get("choices") or len(data["choices"]) == 0:
+                print(f"OpenRouter returned no choices: {data}")
+                return {
+                    "description": "Фото еды",
+                    "products": [],
+                    "categories": {},
+                    "error": "No response from API"
+                }
+
             content = data["choices"][0]["message"]["content"]
+
+            # Логируем raw ответ для отладки
+            print(f"Vision API raw response: {content[:200] if content else 'EMPTY'}...")
+
+            if not content:
+                return {
+                    "description": "Фото еды",
+                    "products": [],
+                    "categories": {},
+                    "error": "Empty response from API"
+                }
 
             # Парсим JSON из ответа
             # Убираем возможные markdown-блоки
             content = content.strip()
             if content.startswith("```"):
-                content = content.split("```")[1]
-                if content.startswith("json"):
-                    content = content[4:]
+                # Более надежный парсинг markdown
+                parts = content.split("```")
+                if len(parts) >= 2:
+                    content = parts[1]
+                    if content.startswith("json"):
+                        content = content[4:]
+                    elif content.startswith("\n"):
+                        content = content[1:]
+                else:
+                    content = content.replace("```", "")
             content = content.strip()
+
+            if not content:
+                return {
+                    "description": "Фото еды",
+                    "products": [],
+                    "categories": {},
+                    "error": "Empty content after parsing"
+                }
 
             return json.loads(content)
 
+    except json.JSONDecodeError as e:
+        print(f"JSON parse error: {e}, content was: {content[:200] if content else 'EMPTY'}")
+        return {
+            "description": "Фото еды",
+            "products": [],
+            "categories": {},
+            "error": f"JSON parse error: {str(e)}"
+        }
     except Exception as e:
+        print(f"Vision API error: {type(e).__name__}: {e}")
         return {
             "description": "Не удалось распознать",
             "products": [],
