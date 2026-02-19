@@ -11,8 +11,9 @@ YourBody PRO is a Telegram bot with WebApp for habit tracking (food, sleep, week
 
 ## Deployment
 - **Frontend**: Vercel (auto-deploys from GitHub)
-- **Backend**: VPS at `217.198.6.249` (systemd service `yourbody-backend`)
-- **Bot**: VPS at `217.198.6.249` (systemd service `yourbody-bot`)
+- **Backend**: VPS at `5.35.126.42` (systemd service `yourbody-api`)
+- **Bot**: VPS at `5.35.126.42` (systemd service `tg-bot`)
+- **Server path**: `/opt/yourbody-pro`
 
 ## Important Instructions
 
@@ -20,11 +21,11 @@ YourBody PRO is a Telegram bot with WebApp for habit tracking (food, sleep, week
 1. **Commit and push changes** to GitHub
 2. **Restart backend on server** (if backend was modified):
    ```bash
-   ssh root@217.198.6.249 "cd /root/yourbody-pro && git pull origin main && sudo systemctl restart yourbody-backend"
+   ssh root@5.35.126.42 "cd /opt/yourbody-pro && git pull origin main && systemctl restart yourbody-api"
    ```
 3. **Restart bot on server** (if bot was modified):
    ```bash
-   ssh root@217.198.6.249 "cd /root/yourbody-pro && git pull origin main && sudo systemctl restart yourbody-bot"
+   ssh root@5.35.126.42 "cd /opt/yourbody-pro && git pull origin main && systemctl restart tg-bot"
    ```
 4. **Frontend auto-deploys** via Vercel when pushed to GitHub
 

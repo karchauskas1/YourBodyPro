@@ -35,6 +35,11 @@ MSK = timezone(timedelta(hours=3))
 YOOKASSA_SHOP_ID = os.getenv("SHOP_ID", "")
 YOOKASSA_SECRET_KEY = os.getenv("SHOP_SECRET_KEY", "")
 MONTH_PRICE = int(os.getenv("MONTH_PRICE", "3690"))
+PAID_DAYS = int(os.getenv("PAID_DAYS", "30"))
+GRACE_DAYS = int(os.getenv("GRACE_DAYS", "1"))
+VAT_CODE = os.getenv("VAT_CODE", "1")
+TAX_SYSTEM_CODE = os.getenv("TAX_SYSTEM_CODE", "")
+RECEIPT_ITEM_DESCRIPTION = os.getenv("RECEIPT_ITEM_DESCRIPTION", "Подписка YourBody PRO (30 дней)")
 
 
 # ============ Pydantic Models ============
@@ -854,8 +859,21 @@ async def create_payment(
         import requests
         from requests.auth import HTTPBasicAuth
 
+        user_id = user['user_id']
+        username = user.get('username', '')
+
+        # Получаем телефон пользователя из БД
+        phone = await db.get_user_phone(user_id)
+
         # Генерируем уникальный ID платежа
         idempotence_key = str(uuid.uuid4())
+
+        # Описание платежа с данными пользователя (как в боте)
+        description = f"{RECEIPT_ITEM_DESCRIPTION}, user_id={user_id}"
+        if phone:
+            description += f", phone={phone}"
+        if username:
+            description += f", @{username}"
 
         # Создаём платёж через YooKassa API
         url = "https://api.yookassa.ru/v3/payments"
@@ -874,13 +892,35 @@ async def create_payment(
                 "return_url": os.getenv("WEBAPP_URL", "https://yourbody.app")
             },
             "capture": True,
-            "description": "Подписка YourBody PRO (30 дней)",
+            "description": description,
             "metadata": {
-                "user_id": user['user_id'],
-                "username": user.get('username', ''),
+                "user_id": str(user_id),
+                "username": username,
+                "phone": phone or "",
                 "source": "webapp"
             }
         }
+
+        # Добавляем чек (receipt) если есть телефон
+        if phone:
+            receipt = {
+                "customer": {"phone": phone},
+                "items": [{
+                    "description": RECEIPT_ITEM_DESCRIPTION,
+                    "quantity": "1.00",
+                    "amount": {
+                        "value": f"{MONTH_PRICE}.00",
+                        "currency": "RUB"
+                    },
+                    "vat_code": int(VAT_CODE)
+                }]
+            }
+            if TAX_SYSTEM_CODE:
+                try:
+                    receipt["tax_system_code"] = int(TAX_SYSTEM_CODE)
+                except ValueError:
+                    pass
+            payload["receipt"] = receipt
 
         response = requests.post(
             url,
@@ -906,6 +946,9 @@ async def create_payment(
                 detail="No confirmation URL in payment response"
             )
 
+        # Сохраняем платёж в БД
+        await db.save_payment(user_id, payment_data["id"], MONTH_PRICE, payment_data.get("status", "pending"))
+
         return {
             "payment_id": payment_data["id"],
             "confirmation_url": confirmation_url,
@@ -917,6 +960,87 @@ async def create_payment(
         raise HTTPException(
             status_code=500,
             detail=f"Payment service error: {str(e)}"
+        )
+
+
+@app.post("/api/payment/check")
+async def check_payment(
+    user: Dict = Depends(get_current_user_optional)
+):
+    """Проверить статус платежа и активировать подписку если оплачен"""
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    try:
+        import requests
+        from requests.auth import HTTPBasicAuth
+
+        user_id = user['user_id']
+
+        # Получаем payment_id из тела запроса
+        # Но для безопасности проверяем все pending платежи пользователя
+        body = {}
+        payment_id = None
+
+        # Если передан payment_id — проверяем конкретный
+        # Иначе — ищем последний pending платёж пользователя
+        # (payment_id может прийти через query или body)
+
+        # Проверяем через YooKassa API — ищем все платежи с metadata.user_id
+        url = "https://api.yookassa.ru/v3/payments"
+        response = requests.get(
+            url,
+            params={
+                "status": "succeeded",
+                "limit": 10,
+            },
+            auth=HTTPBasicAuth(YOOKASSA_SHOP_ID, YOOKASSA_SECRET_KEY),
+            timeout=10
+        )
+
+        if response.status_code != 200:
+            print(f"YooKassa list error: {response.status_code} {response.text}")
+            raise HTTPException(status_code=500, detail="Failed to check payments")
+
+        data = response.json()
+        items = data.get("items", [])
+
+        # Ищем успешный платёж для этого пользователя
+        found_payment = None
+        for item in items:
+            metadata = item.get("metadata", {})
+            meta_user_id = metadata.get("user_id")
+            if meta_user_id and str(meta_user_id) == str(user_id):
+                found_payment = item
+                break
+
+        if found_payment:
+            # Платёж найден! Активируем подписку
+            payment_id = found_payment["id"]
+            await db.update_payment_status(payment_id, "succeeded")
+            new_expires = await db.activate_subscription(user_id, PAID_DAYS, GRACE_DAYS)
+
+            print(f"Subscription activated via webapp for user {user_id}, payment {payment_id}, expires_at={new_expires}")
+
+            return {
+                "status": "succeeded",
+                "payment_id": payment_id,
+                "subscription_active": True,
+                "expires_at": new_expires
+            }
+
+        # Не нашли — подписка не активирована
+        return {
+            "status": "pending",
+            "subscription_active": False,
+            "message": "Платёж ещё не обработан. Попробуйте через несколько секунд."
+        }
+
+    except requests.RequestException as e:
+        print(f"Payment check error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Payment check error: {str(e)}"
         )
 
 

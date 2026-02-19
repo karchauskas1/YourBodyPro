@@ -285,6 +285,15 @@ export const api = {
       '/payment/create',
       { method: 'POST' }
     ),
+
+  checkPayment: () =>
+    apiFetch<{
+      status: string;
+      payment_id?: string;
+      subscription_active: boolean;
+      expires_at?: number;
+      message?: string;
+    }>('/payment/check', { method: 'POST' }),
 };
 
 export default api;

@@ -591,5 +591,53 @@ class HabitDB:
         return [row[0] for row in rows]
 
 
+    async def get_user_phone(self, user_id: int) -> Optional[str]:
+        """Получить телефон пользователя"""
+        cur = await self.conn.execute(
+            "SELECT phone FROM users WHERE user_id = ?", (user_id,)
+        )
+        row = await cur.fetchone()
+        return row[0] if row and row[0] else None
+
+    async def activate_subscription(self, user_id: int, paid_days: int, grace_days: int):
+        """Активировать подписку для пользователя"""
+        now_ts = int(datetime.now(MSK).timestamp())
+        desired_expires = now_ts + (paid_days + grace_days) * 86400
+
+        # Берём текущий expires_at чтобы не уменьшить
+        cur = await self.conn.execute(
+            "SELECT expires_at FROM users WHERE user_id = ?", (user_id,)
+        )
+        row = await cur.fetchone()
+        existing_expires = row[0] if row and row[0] else 0
+
+        new_expires = max(desired_expires, existing_expires)
+
+        await self.conn.execute(
+            "UPDATE users SET expires_at = ? WHERE user_id = ?",
+            (new_expires, user_id)
+        )
+        await self.conn.commit()
+        return new_expires
+
+    async def save_payment(self, user_id: int, payment_id: str, amount: int, status: str):
+        """Сохранить платёж в таблицу payments"""
+        now_ts = int(datetime.now(MSK).timestamp())
+        await self.conn.execute(
+            """INSERT OR REPLACE INTO payments (user_id, payment_id, amount, status, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (user_id, payment_id, amount, status, now_ts)
+        )
+        await self.conn.commit()
+
+    async def update_payment_status(self, payment_id: str, status: str):
+        """Обновить статус платежа"""
+        await self.conn.execute(
+            "UPDATE payments SET status = ? WHERE payment_id = ?",
+            (status, payment_id)
+        )
+        await self.conn.commit()
+
+
 # Singleton instance
 db = HabitDB()

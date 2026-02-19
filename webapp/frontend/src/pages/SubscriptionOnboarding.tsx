@@ -1,9 +1,9 @@
 // Subscription Onboarding - показываем когда нет подписки
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Layout, Button } from '../components/Layout';
 import { useTelegram } from '../hooks/useTelegram';
 import { api } from '../api/client';
-import { ChevronLeft, ChevronRight, Sparkles } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Sparkles, RefreshCw } from 'lucide-react';
 
 const MONTH_PRICE = import.meta.env.VITE_MONTH_PRICE || '490';
 
@@ -67,6 +67,37 @@ export function SubscriptionOnboarding() {
   const { haptic, openLink } = useTelegram();
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isCreatingPayment, setIsCreatingPayment] = useState(false);
+  const [isCheckingPayment, setIsCheckingPayment] = useState(false);
+  const [paymentCreated, setPaymentCreated] = useState(false);
+
+  // Проверяем платёж при возврате в приложение
+  const checkPaymentStatus = useCallback(async () => {
+    setIsCheckingPayment(true);
+    try {
+      const result = await api.checkPayment();
+      if (result.subscription_active) {
+        haptic('success');
+        // Перезагружаем приложение чтобы обновить состояние
+        window.location.reload();
+      }
+    } catch (error) {
+      console.error('Payment check error:', error);
+    } finally {
+      setIsCheckingPayment(false);
+    }
+  }, [haptic]);
+
+  // Автопроверка при возврате на страницу
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && paymentCreated) {
+        checkPaymentStatus();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [paymentCreated, checkPaymentStatus]);
 
   const handleNext = () => {
     haptic('light');
@@ -89,6 +120,7 @@ export function SubscriptionOnboarding() {
     try {
       // Создаём платёж через API
       const payment = await api.createPayment();
+      setPaymentCreated(true);
 
       // Открываем страницу оплаты YooKassa
       openLink(payment.confirmation_url);
@@ -207,6 +239,18 @@ export function SubscriptionOnboarding() {
                 </>
               )}
             </Button>
+
+            {slide.isFinal && paymentCreated && (
+              <Button
+                onClick={checkPaymentStatus}
+                loading={isCheckingPayment}
+                className="flex-1"
+                style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
+              >
+                <RefreshCw className="w-5 h-5 mr-2" />
+                {isCheckingPayment ? 'Проверяю...' : 'Я оплатил — проверить'}
+              </Button>
+            )}
           </div>
         </div>
       </div>
