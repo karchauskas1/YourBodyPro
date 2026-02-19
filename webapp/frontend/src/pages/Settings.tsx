@@ -15,7 +15,11 @@ import {
   Clock,
   Check,
   Palette,
-  Sun
+  Sun,
+  RefreshCw,
+  Gift,
+  Copy,
+  Trophy,
 } from 'lucide-react';
 
 export function Settings() {
@@ -25,6 +29,12 @@ export function Settings() {
   const { themeMode, colorScheme, setThemeMode, setColorScheme } = useTheme();
 
   const [isSaving, setIsSaving] = useState(false);
+  const [autoRenewal, setAutoRenewal] = useState<{ enabled: boolean; has_payment_method: boolean } | null>(null);
+  const [referralInfo, setReferralInfo] = useState<{
+    code: string; link: string;
+    stats: { total_invited: number; total_paid: number; available_rewards: number };
+  } | null>(null);
+  const [copied, setCopied] = useState(false);
   const [localSettings, setLocalSettings] = useState({
     food_tracker_enabled: profile?.food_tracker_enabled || false,
     sleep_tracker_enabled: profile?.sleep_tracker_enabled || false,
@@ -44,6 +54,11 @@ export function Settings() {
       });
     }
   }, [profile]);
+
+  useEffect(() => {
+    api.getAutoRenewalStatus().then(setAutoRenewal).catch(() => {});
+    api.getReferralInfo().then(setReferralInfo).catch(() => {});
+  }, []);
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -203,6 +218,127 @@ export function Settings() {
                 />
               </div>
             </div>
+          </div>
+        </Card>
+
+        {/* Subscription - Auto-renewal */}
+        {autoRenewal && (
+          <Card>
+            <div className="flex items-center gap-2 mb-3">
+              <RefreshCw className="w-5 h-5" style={{ color: 'var(--accent)' }} />
+              <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>
+                Подписка
+              </h3>
+            </div>
+
+            <div
+              className="flex items-center justify-between p-3 rounded-xl cursor-pointer"
+              style={{ background: 'var(--bg-secondary)' }}
+              onClick={async () => {
+                if (!autoRenewal.has_payment_method) return;
+                haptic('selection');
+                try {
+                  const result = await api.toggleAutoRenewal();
+                  setAutoRenewal({ ...autoRenewal, enabled: result.enabled });
+                } catch (err) {
+                  console.error('Toggle auto-renewal failed:', err);
+                }
+              }}
+            >
+              <div className="flex-1 min-w-0">
+                <span style={{ color: 'var(--text-primary)' }}>Автопродление</span>
+                {!autoRenewal.has_payment_method && (
+                  <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>
+                    Активируется после оплаты
+                  </p>
+                )}
+              </div>
+              <div
+                className="w-12 h-7 rounded-full p-1 transition-all"
+                style={{
+                  background: autoRenewal.enabled ? 'var(--accent)' : 'var(--border)',
+                  opacity: autoRenewal.has_payment_method ? 1 : 0.5,
+                }}
+              >
+                <div
+                  className={`w-5 h-5 rounded-full bg-white transition-transform ${
+                    autoRenewal.enabled ? 'translate-x-5' : ''
+                  }`}
+                />
+              </div>
+            </div>
+          </Card>
+        )}
+
+        {/* Referral Program */}
+        {referralInfo && (
+          <Card>
+            <div className="flex items-center gap-2 mb-3">
+              <Gift className="w-5 h-5" style={{ color: 'var(--accent)' }} />
+              <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>
+                Реферальная программа
+              </h3>
+            </div>
+
+            <p className="text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>
+              Пригласи друга — получи скидку 30% на следующий месяц
+            </p>
+
+            <div
+              className="flex items-center gap-2 p-3 rounded-xl mb-3 cursor-pointer"
+              style={{ background: 'var(--bg-secondary)' }}
+              onClick={() => {
+                navigator.clipboard.writeText(referralInfo.link);
+                setCopied(true);
+                haptic('success');
+                setTimeout(() => setCopied(false), 2000);
+              }}
+            >
+              <span className="flex-1 text-sm truncate" style={{ color: 'var(--text-primary)' }}>
+                {referralInfo.link}
+              </span>
+              <Copy className="w-4 h-4 flex-shrink-0" style={{ color: copied ? 'var(--success)' : 'var(--text-tertiary)' }} />
+            </div>
+
+            <div className="flex gap-3 text-center">
+              <div className="flex-1 p-2 rounded-xl" style={{ background: 'var(--bg-secondary)' }}>
+                <div className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>
+                  {referralInfo.stats.total_invited}
+                </div>
+                <div className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Приглашено</div>
+              </div>
+              <div className="flex-1 p-2 rounded-xl" style={{ background: 'var(--bg-secondary)' }}>
+                <div className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>
+                  {referralInfo.stats.total_paid}
+                </div>
+                <div className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Оплатили</div>
+              </div>
+              <div className="flex-1 p-2 rounded-xl" style={{ background: 'var(--bg-secondary)' }}>
+                <div className="text-lg font-bold" style={{ color: 'var(--accent)' }}>
+                  {referralInfo.stats.available_rewards}
+                </div>
+                <div className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Скидки</div>
+              </div>
+            </div>
+          </Card>
+        )}
+
+        {/* Achievements link */}
+        <Card
+          className="cursor-pointer"
+          onClick={() => {
+            haptic('light');
+            navigate('/achievements');
+          }}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Trophy className="w-5 h-5" style={{ color: 'var(--warning)' }} />
+              <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>
+                Достижения
+              </span>
+            </div>
+            <ArrowLeft className="w-5 h-5 rotate-180" style={{ color: 'var(--text-tertiary)' }} />
           </div>
         </Card>
 

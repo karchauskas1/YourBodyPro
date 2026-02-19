@@ -8,7 +8,7 @@ import { Layout, PageHeader, Card, Button, LoadingSpinner, EmptyState } from '..
 import { useStore } from '../store/useStore';
 import { useTelegram } from '../hooks/useTelegram';
 import { api } from '../api/client';
-import type { DashboardData, FoodEntry, WorkoutEntry } from '../types';
+import type { DashboardData, FoodEntry, WorkoutEntry, Achievement } from '../types';
 import {
   Utensils,
   Moon,
@@ -18,7 +18,9 @@ import {
   Settings,
   Sparkles,
   Calendar,
-  Dumbbell
+  Dumbbell,
+  Flame,
+  Trophy
 } from 'lucide-react';
 
 // Food entry item
@@ -103,6 +105,7 @@ export function Dashboard() {
   const { profile, setDashboard } = useStore();
   const [data, setData] = useState<DashboardData | null>(null);
   const [workouts, setWorkouts] = useState<WorkoutEntry[]>([]);
+  const [achievements, setAchievements] = useState<Achievement[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -118,14 +121,19 @@ export function Dashboard() {
       setData(dashboardData);
       setDashboard(dashboardData);
 
-      // Load today's workouts
+      // Load today's workouts and achievements
       const today = new Date().toISOString().split('T')[0];
       try {
         const workoutsData = await api.getWorkoutsByDate(today);
         setWorkouts(workoutsData.workouts || []);
       } catch {
-        // Silently fail if workouts can't be loaded
         setWorkouts([]);
+      }
+      try {
+        const achievementsData = await api.getAchievements();
+        setAchievements(achievementsData.achievements || []);
+      } catch {
+        setAchievements([]);
       }
     } catch (err) {
       console.error('Failed to load dashboard:', err);
@@ -189,6 +197,60 @@ export function Dashboard() {
       />
 
       <div className="space-y-4">
+        {/* Streak Banner */}
+        {data?.streak && data.streak.current > 0 && (
+          <div
+            className="flex items-center gap-3 p-3 rounded-2xl animate-in"
+            style={{ background: 'linear-gradient(135deg, var(--warning-soft), var(--accent-soft))' }}
+          >
+            <Flame className="w-6 h-6" style={{ color: 'var(--warning)' }} />
+            <div className="flex-1">
+              <span className="font-bold text-lg" style={{ color: 'var(--text-primary)' }}>
+                {data.streak.current} {data.streak.current === 1 ? 'день' : data.streak.current < 5 ? 'дня' : 'дней'} подряд
+              </span>
+              {data.streak.best > data.streak.current && (
+                <span className="text-sm ml-2" style={{ color: 'var(--text-tertiary)' }}>
+                  рекорд: {data.streak.best}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Achievements Badges */}
+        {achievements.length > 0 && (
+          <div
+            className="animate-in cursor-pointer"
+            onClick={() => {
+              haptic('light');
+              navigate('/achievements');
+            }}
+          >
+            <div className="flex items-center gap-2 mb-2">
+              <Trophy className="w-4 h-4" style={{ color: 'var(--warning)' }} />
+              <span className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
+                Достижения
+              </span>
+              <ChevronRight className="w-4 h-4 ml-auto" style={{ color: 'var(--text-tertiary)' }} />
+            </div>
+            <div className="flex gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
+              {achievements.map((a) => (
+                <div
+                  key={a.id}
+                  className="flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center text-lg"
+                  style={{
+                    background: a.unlocked ? 'var(--accent-soft)' : 'var(--bg-secondary)',
+                    opacity: a.unlocked ? 1 : 0.4,
+                  }}
+                  title={a.name}
+                >
+                  {a.icon}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Food Tracker Card */}
         {profile?.food_tracker_enabled && (
           <Card className="animate-in">

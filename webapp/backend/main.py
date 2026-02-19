@@ -273,9 +273,12 @@ async def get_subscription_status(
         return {"active": False, "reason": "not_authenticated"}
 
     is_active = await db.is_subscription_active(user['user_id'])
+    ar_info = await db.get_auto_renewal_info(user['user_id'])
     return {
         "active": is_active,
-        "user_id": user['user_id']
+        "user_id": user['user_id'],
+        "auto_renewal_enabled": ar_info["enabled"],
+        "has_payment_method": ar_info["has_payment_method"],
     }
 
 
@@ -373,10 +376,14 @@ async def add_food_text(
         ate_without_gadgets=data.ate_without_gadgets or False
     )
 
+    # Проверяем достижения
+    new_achievements = await db.check_achievements(user['user_id'])
+
     return {
         "success": True,
         "entry_id": entry_id,
-        "analysis": analysis
+        "analysis": analysis,
+        "new_achievements": new_achievements,
     }
 
 
@@ -425,10 +432,14 @@ async def add_food_photo(
             ate_without_gadgets=ate_without_gadgets == 'true' if ate_without_gadgets else False
         )
 
+        # Проверяем достижения
+        new_achievements = await db.check_achievements(user['user_id'])
+
         return {
             "success": True,
             "entry_id": entry_id,
-            "analysis": analysis
+            "analysis": analysis,
+            "new_achievements": new_achievements,
         }
     except HTTPException:
         raise
@@ -545,7 +556,8 @@ async def add_sleep_entry(
         data.score,
         data.date
     )
-    return {"success": success}
+    new_achievements = await db.check_achievements(user['user_id'])
+    return {"success": success, "new_achievements": new_achievements}
 
 
 # --- Workout Tracker ---
@@ -569,7 +581,8 @@ async def add_workout(
         data.intensity,
         data.date
     )
-    return {"success": True, "workout_id": workout_id}
+    new_achievements = await db.check_achievements(user['user_id'])
+    return {"success": True, "workout_id": workout_id, "new_achievements": new_achievements}
 
 
 @app.get("/api/workouts/{date}")
@@ -828,10 +841,12 @@ async def get_dashboard(user: Dict = Depends(get_current_user)):
     food_entries = await db.get_food_entries_for_date(user['user_id'], today)
     sleep_score = await db.get_sleep_entry(user['user_id'], today)
     daily_summary = await db.get_daily_summary(user['user_id'], today)
+    streak = await db.get_food_streak(user['user_id'])
 
     return {
         "date": today,
         "profile": profile,
+        "streak": streak,
         "food": {
             "entries": food_entries,
             "count": len(food_entries)
@@ -882,9 +897,19 @@ async def create_payment(
             "Content-Type": "application/json"
         }
 
+        # Проверяем реферальную скидку
+        referral_reward = await db.get_unused_referral_reward(user_id)
+        actual_price = MONTH_PRICE
+        if referral_reward:
+            discount_pct = referral_reward["discount_percent"]
+            discount_amount = MONTH_PRICE * discount_pct // 100
+            actual_price = MONTH_PRICE - discount_amount
+            await db.use_referral_reward(referral_reward["id"])
+            print(f"User {user_id} using referral discount {discount_pct}% — price {MONTH_PRICE} -> {actual_price}")
+
         payload = {
             "amount": {
-                "value": f"{MONTH_PRICE}.00",
+                "value": f"{actual_price}.00",
                 "currency": "RUB"
             },
             "confirmation": {
@@ -892,6 +917,7 @@ async def create_payment(
                 "return_url": os.getenv("WEBAPP_URL", "https://yourbody.app")
             },
             "capture": True,
+            "save_payment_method": True,
             "description": description,
             "metadata": {
                 "user_id": str(user_id),
@@ -909,7 +935,7 @@ async def create_payment(
                     "description": RECEIPT_ITEM_DESCRIPTION,
                     "quantity": "1.00",
                     "amount": {
-                        "value": f"{MONTH_PRICE}.00",
+                        "value": f"{actual_price}.00",
                         "currency": "RUB"
                     },
                     "vat_code": int(VAT_CODE)
@@ -1020,6 +1046,20 @@ async def check_payment(
             await db.update_payment_status(payment_id, "succeeded")
             new_expires = await db.activate_subscription(user_id, PAID_DAYS, GRACE_DAYS)
 
+            # Сохраняем способ оплаты для автопродления
+            pm = found_payment.get("payment_method", {})
+            if pm.get("saved") and pm.get("id"):
+                await db.set_payment_method(user_id, pm["id"])
+                print(f"Payment method {pm['id']} saved for user {user_id}")
+
+            # Обработка реферала (mark_referral_paid создаёт reward автоматически)
+            try:
+                referrer_id = await db.mark_referral_paid(user_id)
+                if referrer_id:
+                    print(f"Referral reward granted to user {referrer_id} for referred {user_id}")
+            except Exception as e:
+                print(f"Referral reward error for user {user_id}: {e}")
+
             print(f"Subscription activated via webapp for user {user_id}, payment {payment_id}, expires_at={new_expires}")
 
             return {
@@ -1042,6 +1082,170 @@ async def check_payment(
             status_code=500,
             detail=f"Payment check error: {str(e)}"
         )
+
+
+# ============ Autorenewal API ============
+
+@app.get("/api/autorenewal")
+async def get_autorenewal_status(user: Dict = Depends(get_current_user)):
+    """Получить статус автопродления"""
+    info = await db.get_auto_renewal_info(user['user_id'])
+    return info
+
+
+@app.post("/api/autorenewal/toggle")
+async def toggle_autorenewal(user: Dict = Depends(get_current_user)):
+    """Включить/выключить автопродление"""
+    info = await db.get_auto_renewal_info(user['user_id'])
+    new_state = not info["enabled"]
+    await db.set_auto_renewal(user['user_id'], new_state)
+    return {"enabled": new_state}
+
+
+# ============ Referral API ============
+
+import string as _string
+import secrets as _secrets
+
+def _generate_ref_code(length: int = 6) -> str:
+    chars = _string.ascii_uppercase + _string.digits
+    return ''.join(_secrets.choice(chars) for _ in range(length))
+
+
+@app.get("/api/referral")
+async def get_referral_info(user: Dict = Depends(get_current_user)):
+    """Получить реферальную ссылку и статистику"""
+    user_id = user['user_id']
+
+    # Генерируем код если нет
+    code = await db.get_referral_code(user_id)
+    if not code:
+        for _ in range(10):
+            code = _generate_ref_code()
+            existing = await db.find_user_by_referral_code(code)
+            if not existing:
+                break
+        await db.set_referral_code(user_id, code)
+
+    stats = await db.get_referral_stats(user_id)
+    bot_username = os.getenv("BOT_USERNAME", "YourBodyPet_bot")
+    ref_link = f"https://t.me/{bot_username}?start=ref_{code}"
+
+    return {
+        "code": code,
+        "link": ref_link,
+        "stats": stats,
+    }
+
+
+# ============ Gamification API ============
+
+@app.get("/api/streak")
+async def get_streak(user: Dict = Depends(get_current_user)):
+    """Получить стрик питания"""
+    streak = await db.get_food_streak(user['user_id'])
+    return streak
+
+
+ACHIEVEMENTS_CATALOG = [
+    {"id": "first_food", "name": "Первый шаг", "description": "Первый лог еды", "icon": "\ud83c\udf31"},
+    {"id": "streak_7", "name": "Неделя", "description": "7-дневный стрик еды", "icon": "\ud83d\udd25"},
+    {"id": "streak_30", "name": "Месяц", "description": "30-дневный стрик еды", "icon": "\ud83d\udcaa"},
+    {"id": "sleep_7", "name": "Мастер сна", "description": "7 дней сна подряд", "icon": "\ud83d\ude34"},
+    {"id": "workouts_10", "name": "Спортсмен", "description": "10 тренировок всего", "icon": "\ud83c\udfcb\ufe0f"},
+    {"id": "workouts_30", "name": "Марафонец", "description": "30 тренировок", "icon": "\ud83c\udfc5"},
+    {"id": "mindful_10", "name": "Осознанность", "description": "10 приёмов пищи без гаджетов", "icon": "\ud83e\uddd8"},
+    {"id": "weekly_first", "name": "Полная картина", "description": "Первый недельный обзор", "icon": "\ud83d\udcca"},
+]
+
+@app.get("/api/achievements")
+async def get_achievements(user: Dict = Depends(get_current_user)):
+    """Получить список достижений"""
+    unlocked_ids = await db.get_user_achievements(user['user_id'])
+
+    # Get unlock timestamps
+    unlocked_map = {}
+    cur = await db.conn.execute(
+        "SELECT achievement_id, unlocked_at FROM user_achievements WHERE user_id=?",
+        (user['user_id'],)
+    )
+    for row in await cur.fetchall():
+        unlocked_map[row[0]] = row[1]
+
+    result = []
+    for a in ACHIEVEMENTS_CATALOG:
+        unlocked = a["id"] in unlocked_ids
+        entry = {**a, "unlocked": unlocked}
+        if unlocked and unlocked_map.get(a["id"]):
+            entry["unlocked_at"] = datetime.fromtimestamp(
+                unlocked_map[a["id"]], timezone.utc
+            ).isoformat()
+        result.append(entry)
+
+    return {"achievements": result}
+
+
+# ============ Admin Analytics API ============
+
+ADMIN_IDS_ENV = os.getenv("ADMIN_IDS", "")
+ADMIN_IDS_SET = {int(x) for x in ADMIN_IDS_ENV.replace(",", " ").split() if x.strip().isdigit()}
+
+
+@app.get("/api/admin/stats")
+async def get_admin_stats(user: Dict = Depends(get_current_user)):
+    """Админ-дашборд с метриками"""
+    user_id = user['user_id']
+    if ADMIN_IDS_SET and user_id not in ADMIN_IDS_SET:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    total_users = await db.count_total_users()
+    active_users = await db.count_active_users()
+    new_7d = await db.count_new_users(7)
+    new_30d = await db.count_new_users(30)
+    revenue_month = await db.sum_revenue(30)
+    revenue_total = await db.total_revenue()
+    cancel_reasons = await db.get_cancellation_reasons_breakdown()
+    daily_users = await db.get_daily_new_users(30)
+    daily_revenue = await db.get_daily_revenue(30)
+    feature_stats = await db.get_feature_usage_stats()
+    avg_food = await db.get_avg_food_entries_per_day()
+    auto_renewal_count = await db.get_auto_renewal_count()
+    referral_stats = await db.get_referral_stats_admin()
+
+    return {
+        "users": {
+            "total": total_users,
+            "active": active_users,
+            "expired": total_users - active_users,
+            "new_7d": new_7d,
+            "new_30d": new_30d,
+        },
+        "revenue": {
+            "month": revenue_month,
+            "total": revenue_total,
+        },
+        "conversion": {
+            "paid_total": active_users,
+            "started_total": total_users,
+            "rate": round(active_users / total_users, 2) if total_users > 0 else 0,
+        },
+        "churn": {
+            "reasons": cancel_reasons,
+        },
+        "engagement": {
+            "avg_food_per_day": avg_food,
+            "features": feature_stats,
+        },
+        "retention": {
+            "auto_renewal_count": auto_renewal_count,
+            "auto_renewal_pct": round(auto_renewal_count / active_users, 2) if active_users > 0 else 0,
+        },
+        "charts": {
+            "daily_users": daily_users,
+            "daily_revenue": daily_revenue,
+        },
+        "referrals": referral_stats,
+    }
 
 
 if __name__ == "__main__":

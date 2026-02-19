@@ -23,6 +23,8 @@ import { Settings } from './pages/Settings';
 import { EditRequest } from './pages/EditRequest';
 import { SubscriptionOnboarding } from './pages/SubscriptionOnboarding';
 import { FoodCalendar } from './pages/FoodCalendar';
+import { Achievements } from './pages/Achievements';
+import { AdminDashboard } from './pages/AdminDashboard';
 
 import './index.css';
 
@@ -241,6 +243,16 @@ function AuthenticatedApp() {
         element={
           needsOnboarding ? <Navigate to="/onboarding" replace /> : <FoodCalendar />
         }
+      />
+      <Route
+        path="/achievements"
+        element={
+          needsOnboarding ? <Navigate to="/onboarding" replace /> : <Achievements />
+        }
+      />
+      <Route
+        path="/admin"
+        element={<AdminDashboard />}
       />
 
       {/* Fallback */}

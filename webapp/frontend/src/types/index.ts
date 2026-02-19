@@ -91,6 +91,10 @@ export interface WeeklySummary {
 export interface DashboardData {
   date: string;
   profile: UserProfile | null;
+  streak?: {
+    current: number;
+    best: number;
+  };
   food: {
     entries: FoodEntry[];
     count: number;
@@ -102,6 +106,15 @@ export interface DashboardData {
     available: boolean;
     data: DailySummary | null;
   };
+}
+
+export interface Achievement {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  unlocked: boolean;
+  unlocked_at?: string;
 }
 
 export interface OnboardingData {

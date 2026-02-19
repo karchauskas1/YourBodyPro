@@ -294,6 +294,41 @@ export const api = {
       expires_at?: number;
       message?: string;
     }>('/payment/check', { method: 'POST' }),
+
+  // Auto-renewal
+  getAutoRenewalStatus: () =>
+    apiFetch<{ enabled: boolean; has_payment_method: boolean; failures: number }>('/autorenewal'),
+
+  toggleAutoRenewal: () =>
+    apiFetch<{ enabled: boolean }>('/autorenewal/toggle', { method: 'POST' }),
+
+  // Referral
+  getReferralInfo: () =>
+    apiFetch<{
+      code: string;
+      link: string;
+      stats: { total_invited: number; total_paid: number; available_rewards: number };
+    }>('/referral'),
+
+  // Gamification
+  getStreak: () =>
+    apiFetch<{ current: number; best: number }>('/streak'),
+
+  getAchievements: () =>
+    apiFetch<{
+      achievements: Array<{
+        id: string;
+        name: string;
+        description: string;
+        icon: string;
+        unlocked: boolean;
+        unlocked_at?: string;
+      }>;
+    }>('/achievements'),
+
+  // Admin
+  getAdminStats: () =>
+    apiFetch<Record<string, unknown>>('/admin/stats'),
 };
 
 export default api;

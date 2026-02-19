@@ -297,6 +297,46 @@ class DB:
             await self.conn.execute("ALTER TABLE users ADD COLUMN remind_1_sent INTEGER DEFAULT 0;")
         except Exception:
             pass
+        # Автопродление + рефералка
+        for col, defn in [
+            ("payment_method_id", "TEXT"),
+            ("auto_renewal", "INTEGER DEFAULT 0"),
+            ("auto_renewal_agreed_at", "INTEGER"),
+            ("auto_renewal_failures", "INTEGER DEFAULT 0"),
+            ("referral_code", "TEXT"),
+        ]:
+            try:
+                await self.conn.execute(f"ALTER TABLE users ADD COLUMN {col} {defn};")
+            except Exception:
+                pass
+        # Рефералы, награды, достижения, broadcast
+        await self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS referrals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                referrer_id INTEGER NOT NULL, referred_id INTEGER NOT NULL,
+                referred_paid INTEGER DEFAULT 0, reward_granted INTEGER DEFAULT 0,
+                created_at INTEGER, UNIQUE(referred_id)
+            )""")
+        await self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS referral_rewards (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL, discount_percent INTEGER DEFAULT 30,
+                used INTEGER DEFAULT 0, created_at INTEGER
+            )""")
+        await self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_achievements (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL, achievement_id TEXT NOT NULL,
+                unlocked_at INTEGER, UNIQUE(user_id, achievement_id)
+            )""")
+        await self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS broadcast_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                admin_id INTEGER NOT NULL, segment TEXT NOT NULL,
+                message_text TEXT NOT NULL, sent_count INTEGER DEFAULT 0,
+                failed_count INTEGER DEFAULT 0, blocked_count INTEGER DEFAULT 0,
+                created_at INTEGER
+            )""")
         await self.conn.commit()
 
     async def upsert_user_meta(self, user, expires_at: Optional[int] = None):
@@ -404,6 +444,176 @@ class DB:
         rows = await cur.fetchall()
         return [r[0] for r in rows]
 
+    # --- Автопродление ---
+    async def set_payment_method(self, uid: int, payment_method_id: str):
+        assert self.conn is not None
+        await self.conn.execute(
+            "UPDATE users SET payment_method_id=?, auto_renewal=1, auto_renewal_agreed_at=? WHERE user_id=?",
+            (payment_method_id, now_ts(), uid))
+        await self.conn.commit()
+
+    async def set_auto_renewal(self, uid: int, enabled: bool):
+        assert self.conn is not None
+        await self.conn.execute(
+            "UPDATE users SET auto_renewal=? WHERE user_id=?", (1 if enabled else 0, uid))
+        await self.conn.commit()
+
+    async def get_auto_renewal_info(self, uid: int) -> dict:
+        assert self.conn is not None
+        cur = await self.conn.execute(
+            "SELECT auto_renewal, payment_method_id, auto_renewal_failures FROM users WHERE user_id=?", (uid,))
+        row = await cur.fetchone()
+        if not row:
+            return {"enabled": False, "has_payment_method": False, "failures": 0}
+        return {
+            "enabled": bool(row[0]),
+            "has_payment_method": bool(row[1]),
+            "failures": row[2] or 0,
+        }
+
+    async def clear_payment_method(self, uid: int):
+        assert self.conn is not None
+        await self.conn.execute(
+            "UPDATE users SET payment_method_id=NULL, auto_renewal=0, auto_renewal_failures=0 WHERE user_id=?",
+            (uid,))
+        await self.conn.commit()
+
+    async def get_users_for_auto_renewal(self, within_seconds: int = 172800) -> list[dict]:
+        """Пользователи с auto_renewal=1, истекающие в ближайшие within_seconds (по умолчанию 2 дня)."""
+        assert self.conn is not None
+        now = now_ts()
+        deadline = now + within_seconds
+        cur = await self.conn.execute(
+            """SELECT user_id, username, full_name, expires_at, payment_method_id, auto_renewal_failures
+               FROM users
+               WHERE auto_renewal=1 AND payment_method_id IS NOT NULL
+                 AND expires_at > ? AND expires_at <= ?
+                 AND auto_renewal_failures < 2""",
+            (now, deadline))
+        rows = await cur.fetchall()
+        return [{"user_id": r[0], "username": r[1], "full_name": r[2],
+                 "expires_at": r[3], "payment_method_id": r[4], "failures": r[5] or 0}
+                for r in rows]
+
+    async def increment_auto_renewal_failures(self, uid: int):
+        assert self.conn is not None
+        await self.conn.execute(
+            "UPDATE users SET auto_renewal_failures = COALESCE(auto_renewal_failures,0)+1 WHERE user_id=?", (uid,))
+        await self.conn.commit()
+
+    async def reset_auto_renewal_failures(self, uid: int):
+        assert self.conn is not None
+        await self.conn.execute("UPDATE users SET auto_renewal_failures=0 WHERE user_id=?", (uid,))
+        await self.conn.commit()
+
+    # --- Рефералка ---
+    async def get_referral_code(self, uid: int) -> Optional[str]:
+        assert self.conn is not None
+        cur = await self.conn.execute("SELECT referral_code FROM users WHERE user_id=?", (uid,))
+        row = await cur.fetchone()
+        return row[0] if row and row[0] else None
+
+    async def set_referral_code(self, uid: int, code: str):
+        assert self.conn is not None
+        await self.conn.execute("UPDATE users SET referral_code=? WHERE user_id=?", (code, uid))
+        await self.conn.commit()
+
+    async def find_user_by_referral_code(self, code: str) -> Optional[int]:
+        assert self.conn is not None
+        cur = await self.conn.execute("SELECT user_id FROM users WHERE referral_code=?", (code,))
+        row = await cur.fetchone()
+        return row[0] if row else None
+
+    async def create_referral(self, referrer_id: int, referred_id: int):
+        assert self.conn is not None
+        try:
+            await self.conn.execute(
+                "INSERT INTO referrals(referrer_id, referred_id, created_at) VALUES(?,?,?)",
+                (referrer_id, referred_id, now_ts()))
+            await self.conn.commit()
+        except Exception:
+            pass  # duplicate
+
+    async def get_referral_for_user(self, referred_id: int) -> Optional[dict]:
+        assert self.conn is not None
+        cur = await self.conn.execute(
+            "SELECT referrer_id, referred_paid, reward_granted FROM referrals WHERE referred_id=?", (referred_id,))
+        row = await cur.fetchone()
+        if not row:
+            return None
+        return {"referrer_id": row[0], "referred_paid": bool(row[1]), "reward_granted": bool(row[2])}
+
+    async def mark_referral_paid(self, referred_id: int):
+        assert self.conn is not None
+        await self.conn.execute(
+            "UPDATE referrals SET referred_paid=1, reward_granted=1 WHERE referred_id=? AND referred_paid=0",
+            (referred_id,))
+        await self.conn.commit()
+
+    async def get_unused_referral_reward(self, uid: int) -> Optional[int]:
+        """Возвращает discount_percent если есть неиспользованная награда."""
+        assert self.conn is not None
+        cur = await self.conn.execute(
+            "SELECT id, discount_percent FROM referral_rewards WHERE user_id=? AND used=0 ORDER BY created_at LIMIT 1",
+            (uid,))
+        row = await cur.fetchone()
+        return row[1] if row else None
+
+    async def use_referral_reward(self, uid: int):
+        assert self.conn is not None
+        await self.conn.execute(
+            """UPDATE referral_rewards SET used=1 WHERE id=(
+                 SELECT id FROM referral_rewards WHERE user_id=? AND used=0 ORDER BY created_at LIMIT 1
+               )""", (uid,))
+        await self.conn.commit()
+
+    async def create_referral_reward(self, uid: int, discount_percent: int = 30):
+        assert self.conn is not None
+        await self.conn.execute(
+            "INSERT INTO referral_rewards(user_id, discount_percent, created_at) VALUES(?,?,?)",
+            (uid, discount_percent, now_ts()))
+        await self.conn.commit()
+
+    async def get_referral_stats(self, uid: int) -> dict:
+        assert self.conn is not None
+        cur = await self.conn.execute(
+            "SELECT COUNT(*) FROM referrals WHERE referrer_id=?", (uid,))
+        total = (await cur.fetchone())[0]
+        cur = await self.conn.execute(
+            "SELECT COUNT(*) FROM referrals WHERE referrer_id=? AND referred_paid=1", (uid,))
+        paid = (await cur.fetchone())[0]
+        cur = await self.conn.execute(
+            "SELECT COUNT(*) FROM referral_rewards WHERE user_id=? AND used=0", (uid,))
+        rewards = (await cur.fetchone())[0]
+        return {"total_invited": total, "total_paid": paid, "available_rewards": rewards}
+
+    # --- Broadcast / Сегменты ---
+    async def get_all_user_ids(self) -> list[int]:
+        assert self.conn is not None
+        cur = await self.conn.execute("SELECT user_id FROM users")
+        return [r[0] for r in await cur.fetchall()]
+
+    async def get_active_user_ids(self) -> list[int]:
+        assert self.conn is not None
+        cur = await self.conn.execute(
+            "SELECT user_id FROM users WHERE expires_at > ?", (now_ts(),))
+        return [r[0] for r in await cur.fetchall()]
+
+    async def get_expired_user_ids_all(self) -> list[int]:
+        assert self.conn is not None
+        cur = await self.conn.execute(
+            "SELECT user_id FROM users WHERE expires_at > 0 AND expires_at < ?", (now_ts(),))
+        return [r[0] for r in await cur.fetchall()]
+
+    async def log_broadcast(self, admin_id: int, segment: str, text: str,
+                            sent: int, failed: int, blocked: int):
+        assert self.conn is not None
+        await self.conn.execute(
+            """INSERT INTO broadcast_log(admin_id, segment, message_text, sent_count,
+               failed_count, blocked_count, created_at) VALUES(?,?,?,?,?,?,?)""",
+            (admin_id, segment, text, sent, failed, blocked, now_ts()))
+        await self.conn.commit()
+
 db = DB(DB_PATH)
 
 # ---------- ТЕКСТЫ / КНОПКИ ----------
@@ -468,6 +678,16 @@ def pay_button_kb(pay_url: str, payment_id: str) -> InlineKeyboardMarkup:
 @dp.message(CommandStart())
 async def start(m: Message):
     await db.upsert_user_meta(m.from_user)
+
+    # Обработка реферальной ссылки (deep link: /start ref_XXXXXX)
+    args = m.text.split() if m.text else []
+    if len(args) > 1 and args[1].startswith("ref_"):
+        referral_code = args[1][4:]  # убрать "ref_"
+        if referral_code:
+            referrer_id = await db.find_user_by_referral_code(referral_code)
+            if referrer_id and referrer_id != m.from_user.id:
+                await db.create_referral(referrer_id, m.from_user.id)
+                log.info("Referral created: %s -> %s (code %s)", referrer_id, m.from_user.id, referral_code)
 
     # CSV лог старта
     _csv_append(STARTS_CSV, [
@@ -671,6 +891,8 @@ async def cancel_final(cb: CallbackQuery):
         cb.from_user.full_name
     )
     await db.save_cancellation(cb.from_user.id, reason_key)
+    # Отключаем автопродление и удаляем сохранённый способ оплаты
+    await db.clear_payment_method(cb.from_user.id)
     log_cancellation(cb.from_user.id, reason_key)
 
     # 2) Пытаемся удалить из группы
@@ -772,6 +994,15 @@ async def pay_start(cb: CallbackQuery):
         except Exception:
             log.warning("Некорректный TAX_SYSTEM_CODE в .env: %r", TAX_SYSTEM_CODE)
 
+    # Проверяем реферальную скидку
+    referral_discount = await db.get_unused_referral_reward(user.id)
+    if referral_discount:
+        discount_amount = MONTH_PRICE * referral_discount // 100
+        final_price = MONTH_PRICE - discount_amount
+        amount_rub = f"{final_price}.00"
+        await db.use_referral_reward(user.id)
+        log.info("User %s using referral discount %d%% — price %d -> %d", user.id, referral_discount, MONTH_PRICE, final_price)
+
     # создаём платёж в ЮKassa
     try:
         payment = await asyncio.wait_for(
@@ -785,6 +1016,7 @@ async def pay_start(cb: CallbackQuery):
                     "return_url": return_url
                 },
                 "capture": True,
+                "save_payment_method": True,
                 "description": description,          # <- телефон теперь попадает в description
                 "metadata": {
                     "user_id": str(user.id),
@@ -821,12 +1053,18 @@ async def pay_start(cb: CallbackQuery):
 
     # даём пользователю кнопку «оплатить» и потом «проверить»
     pay_url = payment.confirmation.confirmation_url
+    discount_note = ""
+    if referral_discount:
+        discount_note = f"\n🎁 Применена реферальная скидка {referral_discount}%! Сумма: {amount_rub} ₽\n"
     await replace_with_text(
         cb,
         (
             "Откроется платёжная страница ЮKassa.\n"
             "После оплаты вернись сюда и нажми «Проверить».\n\n"
-            f"Чек уйдёт на номер: {phone}"
+            f"Чек уйдёт на номер: {phone}\n"
+            f"{discount_note}"
+            "\n<i>Нажимая «Оплатить», вы соглашаетесь на сохранение способа оплаты "
+            "для автоматического продления подписки. Отключить: /autorenewal</i>"
         ),
         pay_button_kb(pay_url, payment.id)
     )
@@ -873,6 +1111,34 @@ async def pay_check(cb: CallbackQuery):
         existing = await db.get_user(cb.from_user.id)
         new_expires = max(desired_expires, existing.expires_at if existing else 0)
         await db.upsert_user_meta(cb.from_user, expires_at=new_expires)
+
+        # Сохраняем способ оплаты для автопродления
+        try:
+            pm = payment.payment_method
+            if pm and getattr(pm, "saved", False) and pm.id:
+                await db.set_payment_method(cb.from_user.id, pm.id)
+                log.info("Payment method %s saved for user %s", pm.id, cb.from_user.id)
+        except Exception as e:
+            log.warning("Could not save payment method for user %s: %s", cb.from_user.id, e)
+
+        # Обработка реферала — если этого пользователя пригласили
+        try:
+            ref = await db.get_referral_for_user(cb.from_user.id)
+            if ref and not ref["referred_paid"]:
+                await db.mark_referral_paid(cb.from_user.id)
+                await db.create_referral_reward(ref["referrer_id"], 30)
+                # Уведомляем реферера
+                try:
+                    await bot.send_message(
+                        ref["referrer_id"],
+                        "🎉 Твой друг оплатил подписку!\n"
+                        "Тебе начислена скидка 30% на следующий месяц.\n"
+                        "Она применится автоматически при следующей оплате."
+                    )
+                except Exception:
+                    pass
+        except Exception as e:
+            log.warning("Referral reward error for user %s: %s", cb.from_user.id, e)
 
         # CSV лог оплаты
         _csv_append(PAYMENTS_CSV, [
@@ -1030,13 +1296,22 @@ async def reminder_notifier():
                     rows = await cur.fetchall()
                 for uid, exp in rows:
                     left = max(0, (exp - now) // 86400)
+                    # Проверяем автопродление
+                    ar_info = await db.get_auto_renewal_info(uid)
                     try:
-                        txt = (
-                            f"Напоминание: до конца подписки осталось {left} дн."
-                            if days > 1 else
-                            "Напоминание: остался последний день подписки. Завтра доступ закроется. "
-                            "Продлите, чтобы сохранить доступ 😊"
-                        )
+                        if ar_info["enabled"] and ar_info["has_payment_method"]:
+                            txt = (
+                                f"Напоминание: до конца подписки осталось {left} дн.\n"
+                                "Подписка продлится автоматически 🔄\n"
+                                "Управление: /autorenewal"
+                            )
+                        elif days > 1:
+                            txt = f"Напоминание: до конца подписки осталось {left} дн."
+                        else:
+                            txt = (
+                                "Напоминание: остался последний день подписки. Завтра доступ закроется. "
+                                "Продлите, чтобы сохранить доступ 😊"
+                            )
                         await bot.send_message(uid, txt)
                         await db.mark_reminder_sent(uid, days)
                         log.info("reminder %sd sent to %s", days, uid)
@@ -1045,6 +1320,115 @@ async def reminder_notifier():
         except Exception as e:
             log.error("reminder_notifier error: %s", e)
         await asyncio.sleep(CHECK_EVERY)
+
+
+# ---- Автопродление подписки ----
+AUTO_RENEWAL_INTERVAL = 6 * 3600  # каждые 6 часов
+
+async def auto_renewal_job():
+    """
+    Каждые 6 часов:
+    - Находит пользователей с auto_renewal=1, у кого подписка истекает в ближайшие 2 дня
+    - Создаёт рекуррентный платёж по сохранённому payment_method_id
+    - При успехе — продляет подписку и уведомляет
+    - При неудаче — инкрементирует failures, после 2 — отключает auto_renewal
+    """
+    while True:
+        try:
+            users = await db.get_users_for_auto_renewal()
+            if users:
+                log.info("auto_renewal_job: %d users to process", len(users))
+
+            for u in users:
+                uid = u["user_id"]
+                pm_id = u["payment_method_id"]
+                try:
+                    amount_rub = f"{MONTH_PRICE}.00"
+                    phone = await db.get_user_phone(uid)
+
+                    receipt_data = {}
+                    if phone:
+                        receipt_data = {
+                            "receipt": {
+                                "customer": {"phone": phone},
+                                "items": [{
+                                    "description": RECEIPT_ITEM_DESCRIPTION,
+                                    "quantity": "1.00",
+                                    "amount": {"value": amount_rub, "currency": "RUB"},
+                                    "vat_code": VAT_CODE
+                                }]
+                            }
+                        }
+                        if TAX_SYSTEM_CODE:
+                            try:
+                                receipt_data["receipt"]["tax_system_code"] = int(TAX_SYSTEM_CODE)
+                            except Exception:
+                                pass
+
+                    payment = await asyncio.wait_for(
+                        asyncio.to_thread(partial(Payment.create, {
+                            "amount": {"value": amount_rub, "currency": "RUB"},
+                            "payment_method_id": pm_id,
+                            "capture": True,
+                            "description": f"Автопродление подписки, user_id={uid}",
+                            "metadata": {"user_id": str(uid), "type": "auto_renewal"},
+                            **receipt_data
+                        })),
+                        timeout=15
+                    )
+
+                    if payment.status == "succeeded":
+                        new_expires = add_days_ts(PAID_DAYS + GRACE_DAYS)
+                        existing = await db.get_user(uid)
+                        final_expires = max(new_expires, existing.expires_at if existing else 0)
+                        await db.set_user_expires(uid, final_expires, u.get("username"), u.get("full_name"))
+                        await db.reset_auto_renewal_failures(uid)
+                        await db.save_payment(uid, payment.id, MONTH_PRICE, "succeeded")
+                        log.info("auto_renewal succeeded for user %s, payment %s", uid, payment.id)
+
+                        try:
+                            await bot.send_message(
+                                uid,
+                                "✅ Подписка автоматически продлена!\n"
+                                f"Списано: {MONTH_PRICE} ₽\n"
+                                "Отключить автопродление: /autorenewal"
+                            )
+                        except Exception:
+                            pass
+                    else:
+                        raise Exception(f"Payment status: {payment.status}")
+
+                except Exception as e:
+                    log.warning("auto_renewal failed for user %s: %s", uid, e)
+                    await db.increment_auto_renewal_failures(uid)
+
+                    info = await db.get_auto_renewal_info(uid)
+                    if info["failures"] >= 2:
+                        await db.set_auto_renewal(uid, False)
+                        try:
+                            await bot.send_message(
+                                uid,
+                                "⚠️ Не удалось продлить подписку автоматически (2 попытки).\n"
+                                "Автопродление отключено. Продлите вручную: /start"
+                            )
+                        except Exception:
+                            pass
+                    else:
+                        try:
+                            await bot.send_message(
+                                uid,
+                                "⚠️ Не удалось списать оплату для продления подписки.\n"
+                                "Повторим попытку позже. Если проблема сохранится — продлите вручную: /start"
+                            )
+                        except Exception:
+                            pass
+
+                await asyncio.sleep(2)  # rate limit
+
+        except Exception as e:
+            log.error("auto_renewal_job error: %s", e)
+
+        await asyncio.sleep(AUTO_RENEWAL_INTERVAL)
 
 
 # ---- Команда синхронизации для админов ----
@@ -1255,6 +1639,109 @@ async def revoke_subscription_cmd(m: Message):
     except Exception as e:
         log.warning(f"Не удалось отправить уведомление пользователю {uid}: {e}")
 
+# ---- Команда /autorenewal ----
+@dp.message(Command("autorenewal"))
+async def autorenewal_cmd(m: Message):
+    info = await db.get_auto_renewal_info(m.from_user.id)
+
+    if info["enabled"] and info["has_payment_method"]:
+        text = (
+            "🔄 <b>Автопродление включено</b>\n\n"
+            "Подписка будет продлеваться автоматически.\n"
+            "Стоимость списывается с сохранённого способа оплаты."
+        )
+        buttons = kb([
+            kb_row(InlineKeyboardButton(text="❌ Отключить автопродление", callback_data="autorenew_off")),
+            kb_row(InlineKeyboardButton(text="✅ Оставить как есть", callback_data="autorenew_keep"))
+        ])
+    elif info["has_payment_method"]:
+        text = (
+            "🔄 <b>Автопродление отключено</b>\n\n"
+            "Способ оплаты сохранён. Вы можете включить автопродление."
+        )
+        buttons = kb([
+            kb_row(InlineKeyboardButton(text="🔄 Включить автопродление", callback_data="autorenew_on")),
+            kb_row(InlineKeyboardButton(text="Оставить выключенным", callback_data="autorenew_keep"))
+        ])
+    else:
+        text = (
+            "🔄 <b>Автопродление недоступно</b>\n\n"
+            "Способ оплаты будет сохранён при следующей оплате подписки, "
+            "и автопродление включится автоматически."
+        )
+        buttons = None
+
+    await m.answer(text, reply_markup=buttons)
+
+@dp.callback_query(F.data == "autorenew_on")
+async def autorenew_on(cb: CallbackQuery):
+    await db.set_auto_renewal(cb.from_user.id, True)
+    await cb.answer("Автопродление включено ✅")
+    await replace_with_text(cb, "🔄 Автопродление <b>включено</b>.\nПодписка будет продлеваться автоматически.")
+
+@dp.callback_query(F.data == "autorenew_off")
+async def autorenew_off(cb: CallbackQuery):
+    await db.set_auto_renewal(cb.from_user.id, False)
+    await cb.answer("Автопродление отключено")
+    await replace_with_text(cb, "🔄 Автопродление <b>отключено</b>.\nПодписка будет действовать до конца оплаченного периода.")
+
+@dp.callback_query(F.data == "autorenew_keep")
+async def autorenew_keep(cb: CallbackQuery):
+    await cb.answer("Хорошо!")
+    info = await db.get_auto_renewal_info(cb.from_user.id)
+    status = "включено" if info["enabled"] else "отключено"
+    await replace_with_text(cb, f"🔄 Автопродление <b>{status}</b>. Настройки не изменены.")
+
+
+# ---- Команда /referral ----
+import string as _string
+import secrets as _secrets
+
+def _generate_referral_code(length: int = 6) -> str:
+    chars = _string.ascii_uppercase + _string.digits
+    return ''.join(_secrets.choice(chars) for _ in range(length))
+
+@dp.message(Command("referral"))
+async def referral_cmd(m: Message):
+    row = await db.get_user(m.from_user.id)
+    if not (row and is_active(row.expires_at)):
+        await m.answer("Реферальная программа доступна только для подписчиков. Оформите подписку: /start")
+        return
+
+    # Генерируем код если нет
+    code = await db.get_referral_code(m.from_user.id)
+    if not code:
+        for _ in range(10):
+            code = _generate_referral_code()
+            existing = await db.find_user_by_referral_code(code)
+            if not existing:
+                break
+        await db.set_referral_code(m.from_user.id, code)
+
+    stats = await db.get_referral_stats(m.from_user.id)
+    bot_me = await bot.me()
+    ref_link = f"https://t.me/{bot_me.username}?start=ref_{code}"
+
+    text = (
+        "🎁 <b>Реферальная программа</b>\n\n"
+        f"Твоя ссылка:\n<code>{ref_link}</code>\n\n"
+        "Поделись ею с друзьями! Когда друг оплатит подписку, "
+        "ты получишь <b>скидку 30%</b> на следующий месяц.\n\n"
+        f"📊 Приглашено: {stats['total_invited']}\n"
+        f"💰 Оплатили: {stats['total_paid']}\n"
+        f"🎁 Доступные скидки: {stats['available_rewards']}"
+    )
+
+    buttons = kb([
+        kb_row(InlineKeyboardButton(
+            text="📤 Поделиться ссылкой",
+            switch_inline_query=f"Присоединяйся к тренировкам! 🏋️‍♀️ {ref_link}"
+        ))
+    ])
+
+    await m.answer(text, reply_markup=buttons)
+
+
 # ---- Habit Tracker Integration ----
 # Импортируем обработчики habit tracker
 try:
@@ -1272,6 +1759,7 @@ async def on_startup():
     asyncio.create_task(periodic_checks())
     asyncio.create_task(auto_clean_expired())
     asyncio.create_task(reminder_notifier())
+    asyncio.create_task(auto_renewal_job())
 
     # Инициализируем habit tracker если доступен
     if HABIT_TRACKER_ENABLED:
@@ -1290,6 +1778,8 @@ async def on_startup():
         BotCommand(command="comp", description="(admin) Выдать подписку"),
         BotCommand(command="revoke", description="(admin) Отменить подписку пользователя"),
         BotCommand(command="myid", description="Показать мой ID"),
+        BotCommand(command="autorenewal", description="Управление автопродлением"),
+        BotCommand(command="referral", description="Реферальная программа"),
     ]
 
     # Добавляем команды habit tracker если доступен
