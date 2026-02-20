@@ -91,7 +91,7 @@ export function Achievements() {
           </h2>
           <div className="grid grid-cols-2 gap-3">
             {locked.map((a) => (
-              <Card key={a.id} className="text-center" style={{ opacity: 0.5 }}>
+              <Card key={a.id} className="text-center opacity-50">
                 <div className="text-3xl mb-2 grayscale">{a.icon}</div>
                 <div className="font-semibold text-sm mb-1" style={{ color: 'var(--text-primary)' }}>
                   {a.name}

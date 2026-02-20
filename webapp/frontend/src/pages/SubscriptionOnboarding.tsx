@@ -245,8 +245,8 @@ export function SubscriptionOnboarding() {
               <Button
                 onClick={checkPaymentStatus}
                 loading={isCheckingPayment}
+                variant="secondary"
                 className="flex-1"
-                style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
               >
                 <RefreshCw className="w-5 h-5 mr-2" />
                 {isCheckingPayment ? 'Проверяю...' : 'Я оплатил — проверить'}
