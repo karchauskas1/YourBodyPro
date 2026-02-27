@@ -34,7 +34,7 @@ MSK = timezone(timedelta(hours=3))
 # YooKassa configuration
 YOOKASSA_SHOP_ID = os.getenv("SHOP_ID", "")
 YOOKASSA_SECRET_KEY = os.getenv("SHOP_SECRET_KEY", "")
-MONTH_PRICE = int(os.getenv("MONTH_PRICE", "3690"))
+MONTH_PRICE = int(os.getenv("MONTH_PRICE", "2590"))
 PAID_DAYS = int(os.getenv("PAID_DAYS", "30"))
 GRACE_DAYS = int(os.getenv("GRACE_DAYS", "1"))
 VAT_CODE = os.getenv("VAT_CODE", "1")
