@@ -178,12 +178,8 @@ def ask_phone_kb() -> ReplyKeyboardMarkup:
     )
 
 def price_text_block() -> str:
-    base = BASE_PRICE_TEXT or (f"{MONTH_PRICE}₽" if MONTH_PRICE > 0 else "")
     parts = []
-    if base:
-        parts.append(f"💳 Ежемесячная подписка — {base}.")
-    if PROMO_PRICE_TEXT:
-        parts.append(f"🎁 {PROMO_PRICE_TEXT}")
+    parts.append(f"💳 Ежемесячная подписка — <s>3 690 ₽</s> <b>{MONTH_PRICE} ₽</b> в честь 8 Марта 🌷")
     return "\n".join(parts) if parts else ""
 
 async def replace_with_text(cb: CallbackQuery, text: str, reply_markup: Optional[InlineKeyboardMarkup] = None):
@@ -810,7 +806,8 @@ CANCEL_WARN_TEXT = (
 CANCEL_REASON_TEXTS = {
     "price": (
         "Понимаем, что бюджет важен. Но давай посчитаем: "
-        "2 590 ₽ в месяц — это ~86 ₽ в день. Меньше, чем один капучино ☕️\n\n"
+        "сейчас в честь 8 Марта подписка всего 2 590 ₽ вместо 3 690 ₽ — "
+        "это ~86 ₽ в день. Меньше, чем один капучино ☕️\n\n"
         "За эту сумму ты получаешь персонального ассистента, который каждый день "
         "анализирует твоё питание, следит за балансом и помогает держать форму. "
         "Ни одно приложение не даёт такого уровня индивидуального подхода.\n\n"

@@ -5,7 +5,7 @@ import { useTelegram } from '../hooks/useTelegram';
 import { api } from '../api/client';
 import { ChevronLeft, ChevronRight, Sparkles, RefreshCw } from 'lucide-react';
 
-const MONTH_PRICE = import.meta.env.VITE_MONTH_PRICE || '490';
+const MONTH_PRICE = import.meta.env.VITE_MONTH_PRICE || '2590';
 
 const slides = [
   {
@@ -55,8 +55,9 @@ const slides = [
   },
   {
     title: `${MONTH_PRICE}₽/месяц`,
+    subtitle: 'вместо 3 690 ₽ — в честь 8 Марта 🌷',
     items: [
-      'за фитнесс марафон и персонального фитнесс-ассистента',
+      'Персональный фитнесс-ассистент и марафон',
       'Автопродление — не нужно помнить о продлении',
       'Отменить можно в любой момент'
     ],
@@ -162,9 +163,15 @@ export function SubscriptionOnboarding() {
 
         {/* Slide content */}
         <div className="flex-1 animate-in overflow-y-auto">
-          <h2 className="text-2xl font-bold mb-6 text-center" style={{ color: 'var(--text-primary)' }}>
+          <h2 className="text-2xl font-bold mb-1 text-center" style={{ color: 'var(--text-primary)' }}>
             {slide.title}
           </h2>
+          {'subtitle' in slide && (slide as any).subtitle && (
+            <p className="text-sm mb-4 text-center" style={{ color: 'var(--text-secondary)' }}>
+              {(slide as any).subtitle}
+            </p>
+          )}
+          {!('subtitle' in slide) && <div className="mb-5" />}
 
           <div className="space-y-4 mb-8">
             {slide.items.map((item, index) => (
