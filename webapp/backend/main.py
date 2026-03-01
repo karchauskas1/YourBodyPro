@@ -917,7 +917,7 @@ async def create_payment(
                 "return_url": os.getenv("WEBAPP_URL", "https://yourbody.app")
             },
             "capture": True,
-            "save_payment_method": True,
+            # "save_payment_method": True,  # TODO: включить после подключения рекуррентов в YooKassa
             "description": description,
             "metadata": {
                 "user_id": str(user_id),

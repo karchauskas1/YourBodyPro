@@ -1063,7 +1063,7 @@ async def pay_start(cb: CallbackQuery):
                     "return_url": return_url
                 },
                 "capture": True,
-                "save_payment_method": True,
+                # "save_payment_method": True,  # TODO: включить после подключения рекуррентов в YooKassa
                 "description": description,          # <- телефон теперь попадает в description
                 "metadata": {
                     "user_id": str(user.id),
