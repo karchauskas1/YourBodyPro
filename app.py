@@ -1110,8 +1110,7 @@ async def pay_start(cb: CallbackQuery):
             "После оплаты вернись сюда и нажми «Проверить».\n\n"
             f"Чек уйдёт на номер: {phone}\n"
             f"{discount_note}"
-            "\n<i>Нажимая «Оплатить», вы соглашаетесь на сохранение способа оплаты "
-            "для автоматического продления подписки. Отключить: /autorenewal</i>"
+            ""
         ),
         pay_button_kb(pay_url, payment.id)
     )
@@ -1346,12 +1345,8 @@ async def reminder_notifier():
                     # Проверяем автопродление
                     ar_info = await db.get_auto_renewal_info(uid)
                     try:
-                        if ar_info["enabled"] and ar_info["has_payment_method"]:
-                            txt = (
-                                f"Напоминание: до конца подписки осталось {left} дн.\n"
-                                "Подписка продлится автоматически 🔄\n"
-                                "Управление: /autorenewal"
-                            )
+                        if False:  # TODO: включить после подключения рекуррентов в YooKassa
+                            txt = ""
                         elif days > 1:
                             txt = f"Напоминание: до конца подписки осталось {left} дн."
                         else:
@@ -1825,7 +1820,7 @@ async def on_startup():
         BotCommand(command="comp", description="(admin) Выдать подписку"),
         BotCommand(command="revoke", description="(admin) Отменить подписку пользователя"),
         BotCommand(command="myid", description="Показать мой ID"),
-        BotCommand(command="autorenewal", description="Управление автопродлением"),
+        # BotCommand(command="autorenewal", description="Управление автопродлением"),  # TODO: включить после рекуррентов
         BotCommand(command="referral", description="Реферальная программа"),
     ]
 

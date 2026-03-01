@@ -16,7 +16,7 @@ import {
   Check,
   Palette,
   Sun,
-  RefreshCw,
+  // RefreshCw,  // TODO: включить после рекуррентов
   Gift,
   Copy,
   Trophy,
@@ -29,7 +29,7 @@ export function Settings() {
   const { themeMode, colorScheme, setThemeMode, setColorScheme } = useTheme();
 
   const [isSaving, setIsSaving] = useState(false);
-  const [autoRenewal, setAutoRenewal] = useState<{ enabled: boolean; has_payment_method: boolean } | null>(null);
+  // const [autoRenewal, setAutoRenewal] = useState<{ enabled: boolean; has_payment_method: boolean } | null>(null);  // TODO: включить после рекуррентов
   const [referralInfo, setReferralInfo] = useState<{
     code: string; link: string;
     stats: { total_invited: number; total_paid: number; available_rewards: number };
@@ -56,7 +56,7 @@ export function Settings() {
   }, [profile]);
 
   useEffect(() => {
-    api.getAutoRenewalStatus().then(setAutoRenewal).catch(() => {});
+    // api.getAutoRenewalStatus().then(setAutoRenewal).catch(() => {});  // TODO: включить после рекуррентов
     api.getReferralInfo().then(setReferralInfo).catch(() => {});
   }, []);
 
@@ -221,54 +221,7 @@ export function Settings() {
           </div>
         </Card>
 
-        {/* Subscription - Auto-renewal */}
-        {autoRenewal && (
-          <Card>
-            <div className="flex items-center gap-2 mb-3">
-              <RefreshCw className="w-5 h-5" style={{ color: 'var(--accent)' }} />
-              <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>
-                Подписка
-              </h3>
-            </div>
-
-            <div
-              className="flex items-center justify-between p-3 rounded-xl cursor-pointer"
-              style={{ background: 'var(--bg-secondary)' }}
-              onClick={async () => {
-                if (!autoRenewal.has_payment_method) return;
-                haptic('selection');
-                try {
-                  const result = await api.toggleAutoRenewal();
-                  setAutoRenewal({ ...autoRenewal, enabled: result.enabled });
-                } catch (err) {
-                  console.error('Toggle auto-renewal failed:', err);
-                }
-              }}
-            >
-              <div className="flex-1 min-w-0">
-                <span style={{ color: 'var(--text-primary)' }}>Автопродление</span>
-                {!autoRenewal.has_payment_method && (
-                  <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>
-                    Активируется после оплаты
-                  </p>
-                )}
-              </div>
-              <div
-                className="w-12 h-7 rounded-full p-1 transition-all"
-                style={{
-                  background: autoRenewal.enabled ? 'var(--accent)' : 'var(--border)',
-                  opacity: autoRenewal.has_payment_method ? 1 : 0.5,
-                }}
-              >
-                <div
-                  className={`w-5 h-5 rounded-full bg-white transition-transform ${
-                    autoRenewal.enabled ? 'translate-x-5' : ''
-                  }`}
-                />
-              </div>
-            </div>
-          </Card>
-        )}
+        {/* TODO: Subscription - Auto-renewal — включить после подключения рекуррентов в YooKassa */}
 
         {/* Referral Program */}
         {referralInfo && (
