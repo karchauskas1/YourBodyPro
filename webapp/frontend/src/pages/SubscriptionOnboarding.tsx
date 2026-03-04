@@ -5,7 +5,7 @@ import { useTelegram } from '../hooks/useTelegram';
 import { api } from '../api/client';
 import { ChevronLeft, ChevronRight, Sparkles, RefreshCw } from 'lucide-react';
 
-const MONTH_PRICE = import.meta.env.VITE_MONTH_PRICE || '2590';
+const MONTH_PRICE = '2590';  // Акция 8 Марта (обычная цена 3690)
 
 const slides = [
   {
