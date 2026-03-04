@@ -20,6 +20,8 @@ import {
   Gift,
   Copy,
   Trophy,
+  MessageSquare,
+  Send,
 } from 'lucide-react';
 
 export function Settings() {
@@ -29,6 +31,9 @@ export function Settings() {
   const { themeMode, colorScheme, setThemeMode, setColorScheme } = useTheme();
 
   const [isSaving, setIsSaving] = useState(false);
+  const [feedbackText, setFeedbackText] = useState('');
+  const [feedbackSending, setFeedbackSending] = useState(false);
+  const [feedbackSent, setFeedbackSent] = useState(false);
   // const [autoRenewal, setAutoRenewal] = useState<{ enabled: boolean; has_payment_method: boolean } | null>(null);  // TODO: включить после рекуррентов
   const [referralInfo, setReferralInfo] = useState<{
     code: string; link: string;
@@ -418,6 +423,65 @@ export function Settings() {
           <Check className="w-5 h-5 mr-2" />
           Сохранить
         </Button>
+
+        {/* Feedback */}
+        <Card>
+          <div className="flex items-center gap-2 mb-3">
+            <MessageSquare className="w-5 h-5" style={{ color: 'var(--accent)' }} />
+            <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>
+              Обратная связь
+            </h3>
+          </div>
+          <p className="text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>
+            Расскажи, что работает не так или чего не хватает
+          </p>
+          {feedbackSent ? (
+            <div className="p-3 rounded-xl text-center" style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}>
+              Спасибо за обратную связь!
+            </div>
+          ) : (
+            <>
+              <textarea
+                value={feedbackText}
+                onChange={(e) => setFeedbackText(e.target.value)}
+                placeholder="Напиши сюда..."
+                maxLength={2000}
+                rows={3}
+                className="w-full p-3 rounded-xl text-sm resize-none outline-none"
+                style={{
+                  background: 'var(--bg-secondary)',
+                  color: 'var(--text-primary)',
+                  border: '1px solid var(--border)',
+                }}
+              />
+              <Button
+                onClick={async () => {
+                  if (!feedbackText.trim()) return;
+                  setFeedbackSending(true);
+                  try {
+                    await api.sendFeedback(feedbackText.trim());
+                    setFeedbackSent(true);
+                    setFeedbackText('');
+                    haptic('success');
+                  } catch (err) {
+                    console.error('Feedback send failed:', err);
+                    haptic('error');
+                  } finally {
+                    setFeedbackSending(false);
+                  }
+                }}
+                loading={feedbackSending}
+                disabled={!feedbackText.trim()}
+                variant="secondary"
+                size="sm"
+                className="w-full mt-2"
+              >
+                <Send className="w-4 h-4 mr-2" />
+                Отправить
+              </Button>
+            </>
+          )}
+        </Card>
       </div>
     </Layout>
   );

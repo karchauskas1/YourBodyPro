@@ -138,6 +138,17 @@ CREATE TABLE IF NOT EXISTS broadcast_log (
 );
 """
 
+DDL_FEEDBACK = """
+CREATE TABLE IF NOT EXISTS feedback (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL,
+    username    TEXT,
+    full_name   TEXT,
+    message     TEXT NOT NULL,
+    created_at  INTEGER
+);
+"""
+
 DDL_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_food_user_date ON food_entries(user_id, entry_date)",
     "CREATE INDEX IF NOT EXISTS idx_sleep_user_date ON sleep_entries(user_id, entry_date)",
@@ -174,6 +185,7 @@ class HabitDB:
         await self.conn.execute(DDL_REFERRAL_REWARDS)
         await self.conn.execute(DDL_USER_ACHIEVEMENTS)
         await self.conn.execute(DDL_BROADCAST_LOG)
+        await self.conn.execute(DDL_FEEDBACK)
         for idx in DDL_INDEXES:
             await self.conn.execute(idx)
 
@@ -1130,6 +1142,16 @@ class HabitDB:
             (admin_id, segment, message_text, sent, failed, blocked, now_ts)
         )
         await self.conn.commit()
+
+
+    async def save_feedback(self, user_id: int, username: str, full_name: str, message: str) -> int:
+        now_ts = int(datetime.now(MSK).timestamp())
+        cur = await self.conn.execute(
+            "INSERT INTO feedback (user_id, username, full_name, message, created_at) VALUES (?, ?, ?, ?, ?)",
+            (user_id, username, full_name, message, now_ts)
+        )
+        await self.conn.commit()
+        return cur.lastrowid
 
 
 # Singleton instance

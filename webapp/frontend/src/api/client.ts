@@ -329,6 +329,13 @@ export const api = {
   // Admin
   getAdminStats: () =>
     apiFetch<Record<string, unknown>>('/admin/stats'),
+
+  // Feedback
+  sendFeedback: (message: string) =>
+    apiFetch<{ ok: boolean }>('/feedback', {
+      method: 'POST',
+      body: JSON.stringify({ message }),
+    }),
 };
 
 export default api;

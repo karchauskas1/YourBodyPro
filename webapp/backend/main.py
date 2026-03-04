@@ -1248,6 +1248,52 @@ async def get_admin_stats(user: Dict = Depends(get_current_user)):
     }
 
 
+# ============ Feedback API ============
+
+FEEDBACK_RECEIVER_ID = 308477378
+
+@app.post("/api/feedback")
+async def submit_feedback(request: Request, user: Dict = Depends(get_current_user)):
+    """Отправить обратную связь"""
+    body = await request.json()
+    message = (body.get("message") or "").strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="Сообщение не может быть пустым")
+    if len(message) > 2000:
+        raise HTTPException(status_code=400, detail="Сообщение слишком длинное (макс. 2000 символов)")
+
+    user_id = user['user_id']
+    username = user.get('username', '')
+    full_name = f"{user.get('first_name', '')} {user.get('last_name', '')}".strip()
+
+    await db.save_feedback(user_id, username, full_name, message)
+
+    # Отправляем в Telegram пользователю FEEDBACK_RECEIVER_ID
+    tg_text = (
+        f"📩 <b>Обратная связь</b>\n\n"
+        f"От: {full_name}"
+        f"{f' (@{username})' if username else ''}\n"
+        f"ID: <code>{user_id}</code>\n\n"
+        f"{message}"
+    )
+    try:
+        import httpx
+        async with httpx.AsyncClient() as client:
+            await client.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                json={
+                    "chat_id": FEEDBACK_RECEIVER_ID,
+                    "text": tg_text,
+                    "parse_mode": "HTML",
+                },
+                timeout=10,
+            )
+    except Exception as e:
+        print(f"Failed to send feedback notification to Telegram: {e}")
+
+    return {"ok": True}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
