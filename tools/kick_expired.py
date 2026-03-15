@@ -4,7 +4,6 @@ import aiosqlite
 from datetime import datetime, timezone
 from aiogram import Bot
 from aiogram.client.session.aiohttp import AiohttpSession
-from aiogram.client.telegram import TelegramAPIServer
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 
 # Берём из .env
@@ -48,11 +47,7 @@ async def main(dry_run: bool = False, limit: int | None = None, verbose: bool = 
     if not BOT_TOKEN or not GROUP_ID:
         raise SystemExit("Нет BOT_TOKEN или GROUP_ID в окружении (.env).")
 
-    tg_api = TelegramAPIServer(
-        base="https://tg-api-proxy.karchauskas7889.workers.dev/bot{token}/{method}",
-        file="https://tg-api-proxy.karchauskas7889.workers.dev/file/bot{token}/{path}",
-    )
-    session = AiohttpSession(api=tg_api)
+    session = AiohttpSession(proxy="socks5://127.0.0.1:1080")
     bot = Bot(BOT_TOKEN, session=session)
     n_now = now_ts()
 
