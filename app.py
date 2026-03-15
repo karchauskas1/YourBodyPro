@@ -18,6 +18,8 @@ from typing import Optional, Iterable
 import aiosqlite
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
+from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram.client.telegram import TelegramAPIServer
 from aiogram.enums import ParseMode
 from aiogram.filters import Command, CommandStart
 from aiogram.types import (
@@ -115,7 +117,12 @@ def log_cancellation(user_id: int, reason: str):
         now_iso(), str(user_id), "", "", reason
     ])
 
-bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+tg_api = TelegramAPIServer(
+    base="https://tg-api-proxy.karchauskas7889.workers.dev/bot{token}/{method}",
+    file="https://tg-api-proxy.karchauskas7889.workers.dev/file/bot{token}/{path}",
+)
+session = AiohttpSession(api=tg_api)
+bot = Bot(BOT_TOKEN, session=session, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
 bot_username_cache: Optional[str] = None
 
