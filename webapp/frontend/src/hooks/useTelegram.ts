@@ -1,13 +1,29 @@
 // Hook for Telegram WebApp integration
 
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import { useStore } from '../store/useStore';
 import type { TelegramWebApp } from '../types';
 
 export function useTelegram() {
   const { setDarkMode, setUser } = useStore();
 
-  const tg: TelegramWebApp | undefined = window.Telegram?.WebApp;
+  const [tg, setTg] = useState<TelegramWebApp | undefined>(() => window.Telegram?.WebApp);
+
+  useEffect(() => {
+    if (tg) return;
+
+    let attempts = 0;
+    const timerId = window.setInterval(() => {
+      attempts += 1;
+      const webApp = window.Telegram?.WebApp;
+      if (webApp || attempts >= 80) {
+        setTg(webApp);
+        window.clearInterval(timerId);
+      }
+    }, 100);
+
+    return () => window.clearInterval(timerId);
+  }, [tg]);
 
   // Initialize Telegram WebApp
   useEffect(() => {

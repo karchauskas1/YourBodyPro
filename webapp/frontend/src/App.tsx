@@ -193,7 +193,7 @@ function AuthenticatedApp() {
 
         // Если есть Telegram данные, но авторизация не прошла - показываем онбординг
         // (скорее всего проблема с подпиской, а не с auth)
-        if (isAvailable && window.Telegram?.WebApp?.initData) {
+        if (window.Telegram?.WebApp?.initData) {
           setSubscriptionActive(false);
           setAuthenticated(true);
         } else if (import.meta.env.DEV && !isAvailable) {
