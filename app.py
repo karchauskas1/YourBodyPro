@@ -68,8 +68,7 @@ _ADMIN_IDS_RAW = _env("ADMIN_IDS") or ""
 ADMIN_IDS = {int(x) for x in re.split(r"[,\s]+", _ADMIN_IDS_RAW) if x.isdigit()}
 
 def _is_admin_id(uid: int) -> bool:
-    # если список пуст — не ограничиваем (любая команда пройдёт)
-    return (not ADMIN_IDS) or (uid in ADMIN_IDS)
+    return bool(ADMIN_IDS) and uid in ADMIN_IDS
 
 MONTH_PRICE = _env_int("MONTH_PRICE", 0)
 BASE_PRICE_TEXT = _env("BASE_PRICE_TEXT")
@@ -120,6 +119,16 @@ session = AiohttpSession(proxy="socks5://127.0.0.1:1080")
 bot = Bot(BOT_TOKEN, session=session, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
 bot_username_cache: Optional[str] = None
+
+async def notify_admins(text: str):
+    if not ADMIN_IDS:
+        log.error("ADMIN_IDS is empty; cannot send admin alert: %s", text)
+        return
+    for admin_id in ADMIN_IDS:
+        try:
+            await bot.send_message(admin_id, text)
+        except Exception as e:
+            log.warning("notify admin %s failed: %s", admin_id, e)
 
 CANCEL_REASONS: list[tuple[str, str]] = [
     ("Дорого", "price"),
@@ -246,11 +255,24 @@ CREATE TABLE IF NOT EXISTS cancellations (
     created_at INTEGER
 );
 """
+DDL_ADMIN_EVENTS = """
+CREATE TABLE IF NOT EXISTS admin_events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_type  TEXT NOT NULL,
+    severity    TEXT DEFAULT 'warning',
+    user_id     INTEGER,
+    payment_id  TEXT,
+    message     TEXT NOT NULL,
+    resolved    INTEGER DEFAULT 0,
+    created_at  INTEGER
+);
+"""
 DDL_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_users_expires ON users(expires_at)",
     "CREATE INDEX IF NOT EXISTS idx_payments_pid ON payments(payment_id)",
     "CREATE INDEX IF NOT EXISTS idx_payments_uid ON payments(user_id)",
-    "CREATE INDEX IF NOT EXISTS idx_cancellations_uid ON cancellations(user_id)"
+    "CREATE INDEX IF NOT EXISTS idx_cancellations_uid ON cancellations(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_admin_events_open ON admin_events(resolved, created_at)"
 ]
 
 @dataclass
@@ -275,6 +297,7 @@ class DB:
         await self.conn.execute(DDL_USERS)
         await self.conn.execute(DDL_PAYMENTS)
         await self.conn.execute(DDL_CANCEL)
+        await self.conn.execute(DDL_ADMIN_EVENTS)
         for stmt in DDL_INDEXES:
             await self.conn.execute(stmt)
         # на случай старой БД — тихая миграция phone
@@ -428,6 +451,104 @@ class DB:
             (user_id, reason, now_ts())
         )
         await self.conn.commit()
+
+    async def log_admin_event(
+        self,
+        event_type: str,
+        message: str,
+        severity: str = "warning",
+        user_id: int = None,
+        payment_id: str = None,
+    ):
+        assert self.conn is not None
+        await self.conn.execute(
+            """
+            INSERT INTO admin_events(event_type, severity, user_id, payment_id, message, created_at)
+            VALUES(?,?,?,?,?,?)
+            """,
+            (event_type, severity, user_id, payment_id, message, now_ts())
+        )
+        await self.conn.commit()
+
+    async def admin_snapshot(self) -> dict:
+        assert self.conn is not None
+        now = now_ts()
+        today_start = int(datetime.now(MSK).replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
+        old_pending_cutoff = now - 15 * 60
+
+        async def scalar(sql: str, params: tuple = ()) -> int:
+            cur = await self.conn.execute(sql, params)
+            row = await cur.fetchone()
+            return row[0] or 0
+
+        return {
+            "total_users": await scalar("SELECT COUNT(*) FROM users"),
+            "active_users": await scalar("SELECT COUNT(*) FROM users WHERE expires_at > ?", (now,)),
+            "expired_unprocessed": await scalar(
+                "SELECT COUNT(*) FROM users WHERE expires_at > 0 AND expires_at <= ?", (now,)
+            ),
+            "expiring_24h": await scalar(
+                "SELECT COUNT(*) FROM users WHERE expires_at > ? AND expires_at <= ?", (now, now + 86400)
+            ),
+            "expiring_3d": await scalar(
+                "SELECT COUNT(*) FROM users WHERE expires_at > ? AND expires_at <= ?", (now, now + 3 * 86400)
+            ),
+            "payments_today": await scalar(
+                "SELECT COUNT(*) FROM payments WHERE status='succeeded' AND created_at >= ?", (today_start,)
+            ),
+            "revenue_today": await scalar(
+                "SELECT COALESCE(SUM(amount),0) FROM payments WHERE status='succeeded' AND created_at >= ?", (today_start,)
+            ),
+            "pending_total": await scalar(
+                "SELECT COUNT(*) FROM payments WHERE status IN ('pending','created')"
+            ),
+            "pending_old": await scalar(
+                "SELECT COUNT(*) FROM payments WHERE status IN ('pending','created') AND created_at <= ?",
+                (old_pending_cutoff,)
+            ),
+            "cancellations_today": await scalar(
+                "SELECT COUNT(*) FROM cancellations WHERE created_at >= ?", (today_start,)
+            ),
+            "open_events": await scalar(
+                "SELECT COUNT(*) FROM admin_events WHERE resolved=0"
+            ),
+            "auto_renewal_enabled": await scalar(
+                "SELECT COUNT(*) FROM users WHERE auto_renewal=1"
+            ),
+            "saved_payment_methods": await scalar(
+                "SELECT COUNT(*) FROM users WHERE payment_method_id IS NOT NULL AND payment_method_id!=''"
+            ),
+        }
+
+    async def cancellation_report(self, limit: int = 10) -> dict:
+        assert self.conn is not None
+        cur = await self.conn.execute(
+            "SELECT reason, COUNT(*) FROM cancellations GROUP BY reason ORDER BY COUNT(*) DESC"
+        )
+        reasons = {row[0] or "unknown": row[1] for row in await cur.fetchall()}
+
+        cur = await self.conn.execute(
+            """
+            SELECT c.user_id, COALESCE(u.username,''), COALESCE(u.full_name,''),
+                   c.reason, c.created_at
+            FROM cancellations c
+            LEFT JOIN users u ON u.user_id = c.user_id
+            ORDER BY c.created_at DESC
+            LIMIT ?
+            """,
+            (limit,)
+        )
+        recent = [
+            {
+                "user_id": row[0],
+                "username": row[1],
+                "full_name": row[2],
+                "reason": row[3],
+                "created_at": row[4],
+            }
+            for row in await cur.fetchall()
+        ]
+        return {"reasons": reasons, "recent": recent}
 
     async def get_user_id_by_username(self, username: str) -> Optional[int]:
         assert self.conn is not None
@@ -1215,6 +1336,23 @@ async def pay_check(cb: CallbackQuery):
                 "https://t.me/+JNeWx7UUJXcxZjAy"
             )
         else:
+            event_message = (
+                "Оплата прошла, но ссылку в группу создать не удалось. "
+                f"user_id={cb.from_user.id}, payment_id={payment_id}"
+            )
+            await db.log_admin_event(
+                "invite_link_failed",
+                event_message,
+                "critical",
+                cb.from_user.id,
+                payment_id
+            )
+            await notify_admins(
+                "⚠️ <b>Доступ не выдан после оплаты</b>\n"
+                f"Пользователь: <code>{cb.from_user.id}</code>\n"
+                f"Платёж: <code>{payment_id}</code>\n"
+                "Нужно вручную проверить права бота/GROUP_ID и выдать ссылку."
+            )
             await replace_with_text(
                 cb,
                 "Оплата прошла ✅, но ссылку в группу создать не удалось. Проверь права бота и GROUP_ID.\n\n"
@@ -1512,6 +1650,73 @@ async def admin_sync(m: Message):
         f"— уже вне чата (помечены): {processed_left}\n"
         f"— кикнуто: {processed_kicked}\n"
         f"— админов пропущено: {skipped_admin}"
+    )
+
+
+def _cancel_reason_title(reason: str) -> str:
+    labels = dict(CANCEL_REASONS)
+    labels["admin_revoke"] = "Отмена админом"
+    return labels.get(reason, reason or "Не указано")
+
+
+def _short_dt(ts: Optional[int]) -> str:
+    if not ts:
+        return "—"
+    return datetime.fromtimestamp(ts, MSK).strftime("%d.%m %H:%M")
+
+
+@dp.message(Command("admin_stats"))
+async def admin_stats_cmd(m: Message):
+    if not _is_admin_id(m.from_user.id):
+        await m.answer("Команда доступна только админам.")
+        return
+
+    s = await db.admin_snapshot()
+    await m.answer(
+        "📊 <b>Операционная сводка</b>\n\n"
+        "<b>Доступ</b>\n"
+        f"— Активные: <b>{s['active_users']}</b>\n"
+        f"— Истёкшие в базе: <b>{s['expired_unprocessed']}</b>\n"
+        f"— Истекают за 24ч: <b>{s['expiring_24h']}</b>\n"
+        f"— Истекают за 3 дня: <b>{s['expiring_3d']}</b>\n"
+        f"— События требуют внимания: <b>{s['open_events']}</b>\n\n"
+        "<b>Оплаты</b>\n"
+        f"— Сегодня оплат: <b>{s['payments_today']}</b>\n"
+        f"— Сегодня выручка: <b>{s['revenue_today']} ₽</b>\n"
+        f"— Pending всего: <b>{s['pending_total']}</b>\n"
+        f"— Pending старше 15 мин: <b>{s['pending_old']}</b>\n\n"
+        "<b>Отмены и продление</b>\n"
+        f"— Отмен сегодня: <b>{s['cancellations_today']}</b>\n"
+        f"— Автопродление включено: <b>{s['auto_renewal_enabled']}</b>\n"
+        f"— Сохранённые карты: <b>{s['saved_payment_methods']}</b>"
+    )
+
+
+@dp.message(Command("admin_cancellations"))
+async def admin_cancellations_cmd(m: Message):
+    if not _is_admin_id(m.from_user.id):
+        await m.answer("Команда доступна только админам.")
+        return
+
+    report = await db.cancellation_report(10)
+    reason_lines = [
+        f"— {_cancel_reason_title(reason)}: <b>{count}</b>"
+        for reason, count in report["reasons"].items()
+    ] or ["— Пока нет отмен"]
+
+    recent_lines = []
+    for item in report["recent"]:
+        name = f"@{item['username']}" if item["username"] else item["full_name"] or f"ID {item['user_id']}"
+        recent_lines.append(
+            f"— {_short_dt(item['created_at'])}: {name}, {_cancel_reason_title(item['reason'])}"
+        )
+
+    await m.answer(
+        "🧾 <b>Отмены подписки</b>\n\n"
+        "<b>Причины</b>\n"
+        + "\n".join(reason_lines)
+        + "\n\n<b>Последние отмены</b>\n"
+        + ("\n".join(recent_lines) if recent_lines else "— Пока нет отмен")
     )
 
 
@@ -1821,6 +2026,8 @@ async def on_startup():
         BotCommand(command="cancel_subscription", description="Отменить подписку"),
         BotCommand(command="comp", description="(admin) Выдать подписку"),
         BotCommand(command="revoke", description="(admin) Отменить подписку пользователя"),
+        BotCommand(command="admin_stats", description="(admin) Операционная сводка"),
+        BotCommand(command="admin_cancellations", description="(admin) Отмены и причины"),
         BotCommand(command="myid", description="Показать мой ID"),
         # BotCommand(command="autorenewal", description="Управление автопродлением"),  # TODO: включить после рекуррентов
         BotCommand(command="referral", description="Реферальная программа"),

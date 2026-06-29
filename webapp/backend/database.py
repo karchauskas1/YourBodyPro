@@ -149,6 +149,19 @@ CREATE TABLE IF NOT EXISTS feedback (
 );
 """
 
+DDL_ADMIN_EVENTS = """
+CREATE TABLE IF NOT EXISTS admin_events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_type  TEXT NOT NULL,
+    severity    TEXT DEFAULT 'warning',
+    user_id     INTEGER,
+    payment_id  TEXT,
+    message     TEXT NOT NULL,
+    resolved    INTEGER DEFAULT 0,
+    created_at  INTEGER
+);
+"""
+
 DDL_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_food_user_date ON food_entries(user_id, entry_date)",
     "CREATE INDEX IF NOT EXISTS idx_sleep_user_date ON sleep_entries(user_id, entry_date)",
@@ -158,6 +171,7 @@ DDL_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON referrals(referrer_id)",
     "CREATE INDEX IF NOT EXISTS idx_referral_rewards_user ON referral_rewards(user_id)",
     "CREATE INDEX IF NOT EXISTS idx_achievements_user ON user_achievements(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_admin_events_open ON admin_events(resolved, created_at)",
 ]
 
 
@@ -186,6 +200,7 @@ class HabitDB:
         await self.conn.execute(DDL_USER_ACHIEVEMENTS)
         await self.conn.execute(DDL_BROADCAST_LOG)
         await self.conn.execute(DDL_FEEDBACK)
+        await self.conn.execute(DDL_ADMIN_EVENTS)
         for idx in DDL_INDEXES:
             await self.conn.execute(idx)
 
@@ -744,12 +759,25 @@ class HabitDB:
         )
         row = await cur.fetchone()
         if not row:
-            return None
+            return {
+                "payment_method_id": None,
+                "auto_renewal": False,
+                "auto_renewal_agreed_at": None,
+                "auto_renewal_failures": 0,
+                "enabled": False,
+                "has_payment_method": False,
+                "failures": 0,
+            }
+        enabled = bool(row[1])
+        has_payment_method = bool(row[0])
         return {
             "payment_method_id": row[0],
-            "auto_renewal": bool(row[1]),
+            "auto_renewal": enabled,
             "auto_renewal_agreed_at": row[2],
             "auto_renewal_failures": row[3] or 0,
+            "enabled": enabled,
+            "has_payment_method": has_payment_method,
+            "failures": row[3] or 0,
         }
 
     async def clear_payment_method(self, user_id: int):
@@ -1034,6 +1062,176 @@ class HabitDB:
             "SELECT reason, COUNT(*) FROM cancellations GROUP BY reason"
         )
         return {row[0]: row[1] for row in await cur.fetchall()}
+
+    async def get_recent_cancellations(self, limit: int = 10) -> List[Dict]:
+        cur = await self.conn.execute(
+            """
+            SELECT c.user_id, COALESCE(u.username, ''), COALESCE(u.full_name, ''),
+                   c.reason, c.created_at
+            FROM cancellations c
+            LEFT JOIN users u ON u.user_id = c.user_id
+            ORDER BY c.created_at DESC
+            LIMIT ?
+            """,
+            (limit,)
+        )
+        return [
+            {
+                "user_id": row[0],
+                "username": row[1],
+                "full_name": row[2],
+                "reason": row[3],
+                "created_at": row[4],
+            }
+            for row in await cur.fetchall()
+        ]
+
+    async def log_admin_event(
+        self,
+        event_type: str,
+        message: str,
+        severity: str = "warning",
+        user_id: int = None,
+        payment_id: str = None,
+    ) -> int:
+        now_ts = int(datetime.now(MSK).timestamp())
+        cur = await self.conn.execute(
+            """
+            INSERT INTO admin_events (event_type, severity, user_id, payment_id, message, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (event_type, severity, user_id, payment_id, message, now_ts)
+        )
+        await self.conn.commit()
+        return cur.lastrowid
+
+    async def get_admin_operations_summary(self) -> Dict[str, Any]:
+        now_ts = int(datetime.now(MSK).timestamp())
+        today = datetime.now(MSK).replace(hour=0, minute=0, second=0, microsecond=0)
+        today_ts = int(today.timestamp())
+        pending_cutoff = now_ts - 15 * 60
+
+        async def scalar(sql: str, params: tuple = ()) -> int:
+            cur = await self.conn.execute(sql, params)
+            row = await cur.fetchone()
+            return row[0] or 0
+
+        expiring = {}
+        for days in (1, 2, 3):
+            expiring[f"within_{days}_days"] = await scalar(
+                "SELECT COUNT(*) FROM users WHERE expires_at > ? AND expires_at <= ?",
+                (now_ts, now_ts + days * 86400)
+            )
+
+        cur = await self.conn.execute(
+            """
+            SELECT payment_id, user_id, amount, status, created_at
+            FROM payments
+            WHERE status IN ('pending', 'created') AND created_at <= ?
+            ORDER BY created_at ASC
+            LIMIT 10
+            """,
+            (pending_cutoff,)
+        )
+        old_pending = [
+            {
+                "payment_id": row[0],
+                "user_id": row[1],
+                "amount": row[2],
+                "status": row[3],
+                "created_at": row[4],
+            }
+            for row in await cur.fetchall()
+        ]
+
+        cur = await self.conn.execute(
+            """
+            SELECT id, event_type, severity, user_id, payment_id, message, created_at
+            FROM admin_events
+            WHERE resolved = 0
+            ORDER BY created_at DESC
+            LIMIT 20
+            """
+        )
+        open_events = [
+            {
+                "id": row[0],
+                "event_type": row[1],
+                "severity": row[2],
+                "user_id": row[3],
+                "payment_id": row[4],
+                "message": row[5],
+                "created_at": row[6],
+            }
+            for row in await cur.fetchall()
+        ]
+
+        cur = await self.conn.execute(
+            """
+            SELECT payment_id, user_id, amount, created_at
+            FROM payments
+            WHERE status = 'succeeded'
+            ORDER BY created_at DESC
+            LIMIT 10
+            """
+        )
+        recent_payments = [
+            {
+                "payment_id": row[0],
+                "user_id": row[1],
+                "amount": row[2],
+                "created_at": row[3],
+            }
+            for row in await cur.fetchall()
+        ]
+
+        return {
+            "access": {
+                "active": await scalar("SELECT COUNT(*) FROM users WHERE expires_at > ?", (now_ts,)),
+                "expired_unprocessed": await scalar(
+                    "SELECT COUNT(*) FROM users WHERE expires_at > 0 AND expires_at <= ?",
+                    (now_ts,)
+                ),
+                "expiring": expiring,
+                "open_events": len(open_events),
+            },
+            "payments": {
+                "succeeded_today": await scalar(
+                    "SELECT COUNT(*) FROM payments WHERE status = 'succeeded' AND created_at >= ?",
+                    (today_ts,)
+                ),
+                "revenue_today": await scalar(
+                    "SELECT COALESCE(SUM(amount), 0) FROM payments WHERE status = 'succeeded' AND created_at >= ?",
+                    (today_ts,)
+                ),
+                "pending_total": await scalar(
+                    "SELECT COUNT(*) FROM payments WHERE status IN ('pending', 'created')"
+                ),
+                "pending_old": await scalar(
+                    "SELECT COUNT(*) FROM payments WHERE status IN ('pending', 'created') AND created_at <= ?",
+                    (pending_cutoff,)
+                ),
+                "recent_succeeded": recent_payments,
+                "old_pending": old_pending,
+            },
+            "cancellations": {
+                "today": await scalar(
+                    "SELECT COUNT(*) FROM cancellations WHERE created_at >= ?",
+                    (today_ts,)
+                ),
+                "reasons": await self.get_cancellation_reasons_breakdown(),
+                "recent": await self.get_recent_cancellations(10),
+            },
+            "retention": {
+                "auto_renewal_enabled": await scalar(
+                    "SELECT COUNT(*) FROM users WHERE auto_renewal = 1"
+                ),
+                "saved_payment_methods": await scalar(
+                    "SELECT COUNT(*) FROM users WHERE payment_method_id IS NOT NULL AND payment_method_id != ''"
+                ),
+            },
+            "events": open_events,
+        }
 
     async def get_daily_new_users(self, days: int) -> List[Dict]:
         """Daily count of first-time paying users."""

@@ -25,6 +25,7 @@ import { SubscriptionOnboarding } from './pages/SubscriptionOnboarding';
 import { FoodCalendar } from './pages/FoodCalendar';
 import { Achievements } from './pages/Achievements';
 import { AdminDashboard } from './pages/AdminDashboard';
+import { AdminOperations } from './pages/AdminOperations';
 
 import './index.css';
 
@@ -63,6 +64,25 @@ function AuthenticatedApp() {
   const initializeApp = async () => {
     setLoading(true);
     setAuthError(null);
+    const isAdminPath = window.location.pathname.startsWith('/admin');
+
+    const tryAdminAuth = async () => {
+      if (!isAdminPath) return false;
+      try {
+        const response = await api.adminMe();
+        setAuthenticated(true);
+        setSubscriptionActive(false);
+        setUser({
+          user_id: response.user.user_id,
+          username: response.user.username,
+          first_name: response.user.first_name,
+        });
+        return true;
+      } catch (adminError) {
+        console.error('Admin auth error:', adminError);
+        return false;
+      }
+    };
 
     // Debug: log Telegram WebApp info
     console.log('Telegram WebApp available:', isAvailable);
@@ -88,10 +108,18 @@ function AuthenticatedApp() {
       }
     } catch (error) {
       if (error instanceof SubscriptionRequiredError) {
-        setSubscriptionActive(false);
-        setAuthenticated(true);
+        const adminAuthenticated = await tryAdminAuth();
+        if (!adminAuthenticated) {
+          setSubscriptionActive(false);
+          setAuthenticated(true);
+        }
       } else {
         console.error('Auth error:', error);
+
+        const adminAuthenticated = await tryAdminAuth();
+        if (adminAuthenticated) {
+          return;
+        }
 
         // Если есть Telegram данные, но авторизация не прошла - показываем онбординг
         // (скорее всего проблема с подпиской, а не с auth)
@@ -162,7 +190,7 @@ function AuthenticatedApp() {
   }
 
   // No subscription - показываем онбординг
-  if (isAuthenticated && !subscriptionActive) {
+  if (isAuthenticated && !subscriptionActive && !window.location.pathname.startsWith('/admin')) {
     return <SubscriptionOnboarding />;
   }
 
@@ -253,6 +281,10 @@ function AuthenticatedApp() {
       <Route
         path="/admin"
         element={<AdminDashboard />}
+      />
+      <Route
+        path="/admin/ops"
+        element={<AdminOperations />}
       />
 
       {/* Fallback */}

@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Layout, Card, LoadingSpinner, EmptyState, Button } from '../components/Layout';
 import { api } from '../api/client';
-import { ArrowLeft, Users, DollarSign, TrendingUp, BarChart3, Gift } from 'lucide-react';
+import { ArrowLeft, Users, DollarSign, TrendingUp, BarChart3, Gift, ClipboardList } from 'lucide-react';
 
 interface AdminStats {
   users: { total: number; active: number; expired: number; new_7d: number; new_30d: number };
@@ -98,6 +98,14 @@ export function AdminDashboard() {
         <h1 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
           Аналитика
         </h1>
+        <button
+          onClick={() => navigate('/admin/ops')}
+          className="ml-auto flex items-center gap-1 px-3 py-2 rounded-xl text-sm"
+          style={{ background: 'var(--bg-glass)', color: 'var(--text-primary)' }}
+        >
+          <ClipboardList className="w-4 h-4" />
+          Контроль
+        </button>
       </div>
 
       <div className="space-y-4">

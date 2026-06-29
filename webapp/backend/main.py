@@ -30,6 +30,10 @@ load_dotenv(os.path.join(os.path.dirname(__file__), '../../.env'))
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 MSK = timezone(timedelta(hours=3))
+GROUP_ID = os.getenv("GROUP_ID", "")
+INVITE_TTL_HOURS = int(os.getenv("INVITE_TTL_HOURS", "24"))
+ADMIN_IDS_ENV = os.getenv("ADMIN_IDS", "")
+ADMIN_IDS_SET = {int(x) for x in ADMIN_IDS_ENV.replace(",", " ").split() if x.strip().isdigit()}
 
 # YooKassa configuration
 YOOKASSA_SHOP_ID = os.getenv("SHOP_ID", "")
@@ -203,6 +207,94 @@ async def get_current_user_optional(
         return None
 
     return validate_telegram_init_data(x_telegram_init_data, BOT_TOKEN)
+
+
+async def get_admin_user(
+    x_telegram_init_data: str = Header(None, alias="X-Telegram-Init-Data")
+) -> Dict[str, Any]:
+    """Admin dependency: Telegram auth, strict ADMIN_IDS check, no subscription requirement."""
+    if not x_telegram_init_data:
+        if os.getenv("DEBUG", "false").lower() == "true":
+            user_data = {
+                'user_id': 123456789,
+                'username': 'test_admin',
+                'first_name': 'Test',
+            }
+        else:
+            raise HTTPException(status_code=401, detail="Missing Telegram init data")
+    else:
+        user_data = validate_telegram_init_data(x_telegram_init_data, BOT_TOKEN)
+        if not user_data:
+            raise HTTPException(status_code=401, detail="Invalid Telegram init data")
+
+    user_id = user_data.get("user_id")
+    if not ADMIN_IDS_SET or user_id not in ADMIN_IDS_SET:
+        raise HTTPException(status_code=403, detail="Access denied")
+    return user_data
+
+
+async def notify_admins(text: str):
+    if not BOT_TOKEN or not ADMIN_IDS_SET:
+        return
+    import httpx
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        for admin_id in ADMIN_IDS_SET:
+            try:
+                await client.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                    json={"chat_id": admin_id, "text": text, "parse_mode": "HTML"},
+                )
+            except Exception as e:
+                print(f"Failed to notify admin {admin_id}: {e}")
+
+
+async def create_one_time_invite_link() -> str:
+    if not BOT_TOKEN or not GROUP_ID:
+        return ""
+    import httpx
+    expire_date = int(datetime.now(timezone.utc).timestamp()) + INVITE_TTL_HOURS * 3600
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/createChatInviteLink",
+            json={
+                "chat_id": GROUP_ID,
+                "name": f"webapp-access-{int(datetime.now(timezone.utc).timestamp())}",
+                "expire_date": expire_date,
+                "member_limit": 1,
+            },
+        )
+        data = response.json()
+    if not data.get("ok"):
+        print(f"Telegram invite link error: {data}")
+        return ""
+    return data.get("result", {}).get("invite_link", "")
+
+
+async def send_access_link_or_alert(user_id: int, payment_id: str) -> str:
+    invite_link = await create_one_time_invite_link()
+    if invite_link:
+        import httpx
+        text = (
+            "Оплата прошла, спасибо! ✅\n"
+            f"Вход в группу: {invite_link}\n"
+            f"Ссылка одноразовая, действует {INVITE_TTL_HOURS} часов."
+        )
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                await client.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                    json={"chat_id": user_id, "text": text},
+                )
+        except Exception as e:
+            message = f"Оплата прошла, но не удалось отправить ссылку пользователю {user_id}: {e}"
+            await db.log_admin_event("access_dm_failed", message, "critical", user_id, payment_id)
+            await notify_admins(f"⚠️ <b>Доступ требует ручной проверки</b>\n{message}")
+        return invite_link
+
+    message = f"Оплата прошла, но ссылка в группу не создана. user_id={user_id}, payment_id={payment_id}"
+    await db.log_admin_event("invite_link_failed", message, "critical", user_id, payment_id)
+    await notify_admins(f"⚠️ <b>Доступ не выдан после оплаты</b>\n{message}")
+    return ""
 
 
 # ============ App Lifecycle ============
@@ -1043,6 +1135,7 @@ async def check_payment(
         if found_payment:
             # Платёж найден! Активируем подписку
             payment_id = found_payment["id"]
+            was_active = await db.is_subscription_active(user_id)
             await db.update_payment_status(payment_id, "succeeded")
             new_expires = await db.activate_subscription(user_id, PAID_DAYS, GRACE_DAYS)
 
@@ -1060,13 +1153,18 @@ async def check_payment(
             except Exception as e:
                 print(f"Referral reward error for user {user_id}: {e}")
 
+            invite_link = ""
+            if not was_active:
+                invite_link = await send_access_link_or_alert(user_id, payment_id)
+
             print(f"Subscription activated via webapp for user {user_id}, payment {payment_id}, expires_at={new_expires}")
 
             return {
                 "status": "succeeded",
                 "payment_id": payment_id,
                 "subscription_active": True,
-                "expires_at": new_expires
+                "expires_at": new_expires,
+                "invite_link": invite_link,
             }
 
         # Не нашли — подписка не активирована
@@ -1187,17 +1285,15 @@ async def get_achievements(user: Dict = Depends(get_current_user)):
 
 # ============ Admin Analytics API ============
 
-ADMIN_IDS_ENV = os.getenv("ADMIN_IDS", "")
-ADMIN_IDS_SET = {int(x) for x in ADMIN_IDS_ENV.replace(",", " ").split() if x.strip().isdigit()}
+@app.get("/api/admin/me")
+async def get_admin_me(user: Dict = Depends(get_admin_user)):
+    """Проверить админ-доступ без требования активной подписки."""
+    return {"admin": True, "user": user}
 
 
 @app.get("/api/admin/stats")
-async def get_admin_stats(user: Dict = Depends(get_current_user)):
+async def get_admin_stats(user: Dict = Depends(get_admin_user)):
     """Админ-дашборд с метриками"""
-    user_id = user['user_id']
-    if ADMIN_IDS_SET and user_id not in ADMIN_IDS_SET:
-        raise HTTPException(status_code=403, detail="Access denied")
-
     total_users = await db.count_total_users()
     active_users = await db.count_active_users()
     new_7d = await db.count_new_users(7)
@@ -1246,6 +1342,12 @@ async def get_admin_stats(user: Dict = Depends(get_current_user)):
         },
         "referrals": referral_stats,
     }
+
+
+@app.get("/api/admin/operations")
+async def get_admin_operations(user: Dict = Depends(get_admin_user)):
+    """Операционная сводка для контроля оплат, доступов и отмен."""
+    return await db.get_admin_operations_summary()
 
 
 # ============ Feedback API ============

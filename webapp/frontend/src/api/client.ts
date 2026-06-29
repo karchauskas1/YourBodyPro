@@ -86,6 +86,62 @@ export class SubscriptionRequiredError extends Error {
   }
 }
 
+export interface AdminOperations {
+  access: {
+    active: number;
+    expired_unprocessed: number;
+    expiring: {
+      within_1_days: number;
+      within_2_days: number;
+      within_3_days: number;
+    };
+    open_events: number;
+  };
+  payments: {
+    succeeded_today: number;
+    revenue_today: number;
+    pending_total: number;
+    pending_old: number;
+    recent_succeeded: Array<{
+      payment_id: string;
+      user_id: number;
+      amount: number;
+      created_at: number;
+    }>;
+    old_pending: Array<{
+      payment_id: string;
+      user_id: number;
+      amount: number;
+      status: string;
+      created_at: number;
+    }>;
+  };
+  cancellations: {
+    today: number;
+    reasons: Record<string, number>;
+    recent: Array<{
+      user_id: number;
+      username: string;
+      full_name: string;
+      reason: string;
+      created_at: number;
+    }>;
+  };
+  retention: {
+    auto_renewal_enabled: number;
+    saved_payment_methods: number;
+  };
+  events: Array<{
+    id: number;
+    event_type: string;
+    severity: string;
+    user_id?: number;
+    payment_id?: string;
+    message: string;
+    created_at: number;
+  }>;
+}
+
 // API methods
 export const api = {
   // Health check
@@ -292,6 +348,7 @@ export const api = {
       payment_id?: string;
       subscription_active: boolean;
       expires_at?: number;
+      invite_link?: string;
       message?: string;
     }>('/payment/check', { method: 'POST' }),
 
@@ -327,8 +384,14 @@ export const api = {
     }>('/achievements'),
 
   // Admin
+  adminMe: () =>
+    apiFetch<{ admin: boolean; user: { user_id: number; username?: string; first_name?: string } }>('/admin/me'),
+
   getAdminStats: () =>
     apiFetch<Record<string, unknown>>('/admin/stats'),
+
+  getAdminOperations: () =>
+    apiFetch<AdminOperations>('/admin/operations'),
 
   // Feedback
   sendFeedback: (message: string) =>
