@@ -380,6 +380,7 @@ app = FastAPI(
 
 # CORS для Telegram WebApp
 ALLOWED_ORIGINS = [
+    "https://app.pasekaproduction.ru",
     "https://api.pasekaproduction.ru",
     "http://localhost:3000",
     "http://localhost:5173",
@@ -1064,7 +1065,7 @@ async def create_payment(
             },
             "confirmation": {
                 "type": "redirect",
-                "return_url": os.getenv("WEBAPP_URL", "https://api.pasekaproduction.ru/yourbody-app")
+                "return_url": os.getenv("WEBAPP_URL", "https://app.pasekaproduction.ru")
             },
             "capture": True,
             "save_payment_method": True,

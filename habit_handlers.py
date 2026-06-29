@@ -29,7 +29,7 @@ log = logging.getLogger("habit_handlers")
 MSK = timezone(timedelta(hours=3))
 
 # URL веб-приложения (настраивается в .env)
-WEBAPP_URL = os.getenv("WEBAPP_URL", "https://api.pasekaproduction.ru/yourbody-app")
+WEBAPP_URL = os.getenv("WEBAPP_URL", "https://app.pasekaproduction.ru")
 
 # Database instance
 habit_db: Optional[HabitDB] = None
@@ -271,7 +271,7 @@ async def notification_scheduler(bot):
         return
 
     log.info("Notification scheduler started")
-    WEBAPP_URL_LOCAL = os.getenv("WEBAPP_URL", "https://api.pasekaproduction.ru/yourbody-app")
+    WEBAPP_URL_LOCAL = os.getenv("WEBAPP_URL", "https://app.pasekaproduction.ru")
 
     while True:
         try:

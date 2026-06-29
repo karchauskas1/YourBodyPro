@@ -81,8 +81,8 @@ PROMO_PRICE_TEXT = _env("PROMO_PRICE_TEXT")
 
 SHOP_ID = _env("SHOP_ID")
 SHOP_SECRET_KEY = _env("SHOP_SECRET_KEY")
-WEBAPP_URL = _env("WEBAPP_URL") or "https://api.pasekaproduction.ru/yourbody-app"
-WEBAPP_CACHE_BUSTER = _env("WEBAPP_CACHE_BUSTER") or "20260630-selfhost-entry"
+WEBAPP_URL = _env("WEBAPP_URL") or "https://app.pasekaproduction.ru"
+WEBAPP_CACHE_BUSTER = _env("WEBAPP_CACHE_BUSTER") or "20260630-app-domain"
 
 VAT_CODE = _env_int("VAT_CODE", 1)  # 1=без НДС; 2=0%; 3=10%; 4=20%; 5=10/110; 6=20/120
 TAX_SYSTEM_CODE = _env("TAX_SYSTEM_CODE")  # например "1" (ОСН)
