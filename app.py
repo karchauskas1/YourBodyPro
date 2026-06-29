@@ -1680,9 +1680,11 @@ async def auto_clean_expired():
         try:
             log.info("auto_clean_expired: запущена проверка истёкших пользователей")
             now = now_ts()
-            # Получаем всех пользователей, у кого подписка истекла или не указана (NULL/0/expired)
+            # Берём только ещё не обработанные истекшие подписки.
+            # expires_at=0 означает, что доступ уже закрыт и повторно кикать не нужно.
             async with db.conn.execute(
-                "SELECT user_id FROM users WHERE expires_at IS NULL OR expires_at = 0 OR expires_at <= ?", (now,)
+                "SELECT user_id FROM users WHERE expires_at IS NOT NULL AND expires_at > 0 AND expires_at <= ?",
+                (now,)
             ) as cur:
                 rows = await cur.fetchall()
                 expired_ids = [row[0] for row in rows]
@@ -1695,6 +1697,7 @@ async def auto_clean_expired():
                     # Мягкий кик: ban + unban
                     await bot.ban_chat_member(GROUP_ID, uid, until_date=now + 60)
                     await bot.unban_chat_member(GROUP_ID, uid)
+                    await db.set_user_expires(uid, 0)
                     kicked += 1
                     log.info("auto_clean_expired: успешно кикнут uid=%s", uid)
                 except Exception as e:
