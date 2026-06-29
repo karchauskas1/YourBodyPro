@@ -13,7 +13,6 @@ import os
 import re
 from datetime import datetime, timezone, timedelta
 from typing import Optional
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from aiogram import Dispatcher, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -38,15 +37,13 @@ def webapp_url(path: str = "") -> str:
     base_url = WEBAPP_URL.rstrip("/")
     if not base_url:
         return ""
-    clean_path = path if path.startswith("/") or not path else f"/{path}"
-    url = f"{base_url}{clean_path}"
-    if not WEBAPP_CACHE_BUSTER:
-        return url
 
-    parts = urlsplit(url)
-    query = dict(parse_qsl(parts.query, keep_blank_values=True))
-    query["v"] = WEBAPP_CACHE_BUSTER
-    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+    clean_path = path if path.startswith("/") or not path else f"/{path}"
+    clean_path = clean_path.rstrip("/")
+    if WEBAPP_CACHE_BUSTER:
+        clean_path = f"{clean_path}/v/{WEBAPP_CACHE_BUSTER}" if clean_path else f"/v/{WEBAPP_CACHE_BUSTER}"
+
+    return f"{base_url}{clean_path}"
 
 # Database instance
 habit_db: Optional[HabitDB] = None

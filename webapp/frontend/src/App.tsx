@@ -320,7 +320,19 @@ function AuthenticatedApp() {
         }
       />
       <Route
+        path="/summary/v/:cache"
+        element={
+          needsOnboarding ? <Navigate to="/onboarding" replace /> : <DailySummary />
+        }
+      />
+      <Route
         path="/weekly"
+        element={
+          needsOnboarding ? <Navigate to="/onboarding" replace /> : <WeeklySummary />
+        }
+      />
+      <Route
+        path="/weekly/v/:cache"
         element={
           needsOnboarding ? <Navigate to="/onboarding" replace /> : <WeeklySummary />
         }
@@ -354,11 +366,23 @@ function AuthenticatedApp() {
         element={<AdminDashboard />}
       />
       <Route
+        path="/admin/v/:cache"
+        element={<AdminDashboard />}
+      />
+      <Route
         path="/admin/ops"
         element={<AdminOperations />}
       />
       <Route
+        path="/admin/ops/v/:cache"
+        element={<AdminOperations />}
+      />
+      <Route
         path="/admin/console"
+        element={<AdminConsole />}
+      />
+      <Route
+        path="/admin/console/v/:cache"
         element={<AdminConsole />}
       />
 

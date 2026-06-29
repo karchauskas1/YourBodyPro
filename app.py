@@ -14,7 +14,6 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from functools import partial
 from typing import Optional, Iterable
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import aiosqlite
 from aiogram import Bot, Dispatcher, F
@@ -171,15 +170,13 @@ def webapp_url(path: str = "") -> str:
     base_url = WEBAPP_URL.rstrip("/")
     if not base_url:
         return ""
-    clean_path = path if path.startswith("/") or not path else f"/{path}"
-    url = f"{base_url}{clean_path}"
-    if not WEBAPP_CACHE_BUSTER:
-        return url
 
-    parts = urlsplit(url)
-    query = dict(parse_qsl(parts.query, keep_blank_values=True))
-    query["v"] = WEBAPP_CACHE_BUSTER
-    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+    clean_path = path if path.startswith("/") or not path else f"/{path}"
+    clean_path = clean_path.rstrip("/")
+    if WEBAPP_CACHE_BUSTER:
+        clean_path = f"{clean_path}/v/{WEBAPP_CACHE_BUSTER}" if clean_path else f"/v/{WEBAPP_CACHE_BUSTER}"
+
+    return f"{base_url}{clean_path}"
 
 def admin_console_url() -> str:
     return webapp_url("/admin/console")
