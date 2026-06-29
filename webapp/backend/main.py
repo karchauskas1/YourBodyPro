@@ -1064,7 +1064,7 @@ async def create_payment(
             },
             "confirmation": {
                 "type": "redirect",
-                "return_url": os.getenv("WEBAPP_URL", "https://yourbody.app")
+                "return_url": os.getenv("WEBAPP_URL", "https://api.pasekaproduction.ru/yourbody-app")
             },
             "capture": True,
             "save_payment_method": True,

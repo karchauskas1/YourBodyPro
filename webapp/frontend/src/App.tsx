@@ -39,6 +39,18 @@ const queryClient = new QueryClient({
   },
 });
 
+const routerBaseName = import.meta.env.BASE_URL === '/'
+  ? undefined
+  : import.meta.env.BASE_URL.replace(/\/$/, '');
+
+function currentAppPath(): string {
+  const path = window.location.pathname;
+  if (routerBaseName && (path === routerBaseName || path.startsWith(`${routerBaseName}/`))) {
+    return path.slice(routerBaseName.length) || '/';
+  }
+  return path;
+}
+
 // Auth wrapper component
 function AuthenticatedApp() {
   const {
@@ -65,7 +77,7 @@ function AuthenticatedApp() {
   const initializeApp = async () => {
     setLoading(true);
     setAuthError(null);
-    const isAdminPath = window.location.pathname.startsWith('/admin');
+    const isAdminPath = currentAppPath().startsWith('/admin');
 
     const tryAdminAuth = async () => {
       if (!isAdminPath) return false;
@@ -191,7 +203,7 @@ function AuthenticatedApp() {
   }
 
   // No subscription - показываем онбординг
-  if (isAuthenticated && !subscriptionActive && !window.location.pathname.startsWith('/admin')) {
+  if (isAuthenticated && !subscriptionActive && !currentAppPath().startsWith('/admin')) {
     return <SubscriptionOnboarding />;
   }
 
@@ -301,7 +313,7 @@ function AuthenticatedApp() {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
+      <BrowserRouter basename={routerBaseName}>
         <AuthenticatedApp />
       </BrowserRouter>
     </QueryClientProvider>
