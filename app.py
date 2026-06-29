@@ -23,7 +23,7 @@ from aiogram.enums import ParseMode
 from aiogram.filters import Command, CommandStart
 from aiogram.types import (
     Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery,
-    ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, BotCommand
+    ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, BotCommand, WebAppInfo
 )
 from dotenv import load_dotenv
 from yookassa import Configuration, Payment
@@ -76,6 +76,7 @@ PROMO_PRICE_TEXT = _env("PROMO_PRICE_TEXT")
 
 SHOP_ID = _env("SHOP_ID")
 SHOP_SECRET_KEY = _env("SHOP_SECRET_KEY")
+WEBAPP_URL = _env("WEBAPP_URL") or "https://yourbody.app"
 
 VAT_CODE = _env_int("VAT_CODE", 1)  # 1=без НДС; 2=0%; 3=10%; 4=20%; 5=10/110; 6=20/120
 TAX_SYSTEM_CODE = _env("TAX_SYSTEM_CODE")  # например "1" (ОСН)
@@ -158,6 +159,9 @@ def now_ts() -> int:
 
 def now_iso() -> str:
     return datetime.now(MSK).strftime("%Y-%m-%d %H:%M:%S%z")
+
+def admin_console_url() -> str:
+    return f"{WEBAPP_URL.rstrip('/')}/admin/console"
 
 def days_left(expires_at: int, at_ts: Optional[int] = None) -> int:
     ref = at_ts or now_ts()
@@ -1936,6 +1940,30 @@ async def admin_stats_cmd(m: Message):
     )
 
 
+@dp.message(Command("admin_web"))
+async def admin_web_cmd(m: Message):
+    if not _is_admin_id(m.from_user.id):
+        await m.answer("Команда доступна только админам.")
+        return
+
+    url = admin_console_url()
+    if not url.startswith("https://"):
+        await m.answer("Админ-пульт не настроен: WEBAPP_URL должен быть HTTPS-адресом.")
+        return
+
+    await m.answer(
+        "<b>Админ-пульт</b>\n\n"
+        "Здесь управление клиентами, оплатами, автопродлением и тревожными событиями.\n"
+        "Открывай через кнопку ниже, чтобы Telegram передал админскую авторизацию.",
+        reply_markup=kb([
+            kb_row(InlineKeyboardButton(
+                text="Открыть админ-пульт",
+                web_app=WebAppInfo(url=url),
+            ))
+        ])
+    )
+
+
 @dp.message(Command("admin_recurring"))
 async def admin_recurring_cmd(m: Message):
     if not _is_admin_id(m.from_user.id):
@@ -2451,6 +2479,7 @@ async def on_startup():
         BotCommand(command="comp", description="(admin) Выдать подписку"),
         BotCommand(command="revoke", description="(admin) Отменить подписку пользователя"),
         BotCommand(command="admin_stats", description="(admin) Операционная сводка"),
+        BotCommand(command="admin_web", description="(admin) Открыть админ-пульт"),
         BotCommand(command="admin_cancellations", description="(admin) Отмены и причины"),
         BotCommand(command="admin_recurring", description="(admin) Рекуррентные платежи"),
         BotCommand(command="myid", description="Показать мой ID"),
