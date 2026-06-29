@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Layout, Card, LoadingSpinner, EmptyState, Button } from '../components/Layout';
 import { api, type AdminOperations as AdminOperationsData } from '../api/client';
-import { AlertTriangle, ArrowLeft, Ban, Clock, CreditCard, KeyRound, RefreshCw } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Ban, Clock, CreditCard, KeyRound, RefreshCw, UserCog } from 'lucide-react';
 
 function StatCard({ label, value, tone = 'default' }: { label: string; value: string | number; tone?: 'default' | 'warning' | 'danger' | 'success' }) {
   const color = tone === 'danger'
@@ -123,13 +123,22 @@ export function AdminOperations() {
             </p>
           </div>
         </div>
-        <button
-          onClick={loadData}
-          className="p-2 rounded-xl"
-          style={{ background: 'var(--bg-glass)' }}
-        >
-          <RefreshCw className="w-5 h-5" style={{ color: 'var(--text-primary)' }} />
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => navigate('/admin/console')}
+            className="p-2 rounded-xl"
+            style={{ background: 'var(--accent)' }}
+          >
+            <UserCog className="w-5 h-5" style={{ color: '#fff' }} />
+          </button>
+          <button
+            onClick={loadData}
+            className="p-2 rounded-xl"
+            style={{ background: 'var(--bg-glass)' }}
+          >
+            <RefreshCw className="w-5 h-5" style={{ color: 'var(--text-primary)' }} />
+          </button>
+        </div>
       </div>
 
       <div className="space-y-4">

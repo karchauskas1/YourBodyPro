@@ -10,7 +10,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 from urllib.parse import parse_qsl
 
-from fastapi import FastAPI, HTTPException, Depends, Header, UploadFile, File, Form, Request
+from fastapi import FastAPI, HTTPException, Depends, Header, UploadFile, File, Form, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -79,6 +79,18 @@ class FoodEntryUpdate(BaseModel):
 
 class AutoRenewalAction(BaseModel):
     reason: Optional[str] = "webapp"
+
+
+class AdminExtendSubscription(BaseModel):
+    days: int = 30
+
+
+class AdminRevokeSubscription(BaseModel):
+    reason: Optional[str] = "admin_revoke_web"
+
+
+class AdminAutoRenewalUpdate(BaseModel):
+    enabled: bool
 
 
 class SleepEntry(BaseModel):
@@ -299,6 +311,48 @@ async def send_access_link_or_alert(user_id: int, payment_id: str) -> str:
     await db.log_admin_event("invite_link_failed", message, "critical", user_id, payment_id)
     await notify_admins(f"⚠️ <b>Доступ не выдан после оплаты</b>\n{message}")
     return ""
+
+
+async def send_telegram_message(user_id: int, text: str) -> bool:
+    if not BOT_TOKEN:
+        return False
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                json={"chat_id": user_id, "text": text, "parse_mode": "HTML"},
+            )
+        return bool(response.json().get("ok"))
+    except Exception as e:
+        print(f"Telegram sendMessage failed for {user_id}: {e}")
+        return False
+
+
+async def remove_user_from_group(user_id: int) -> bool:
+    if not BOT_TOKEN or not GROUP_ID:
+        return False
+    import httpx
+    until_date = int(datetime.now(timezone.utc).timestamp()) + 60
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            ban_response = await client.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/banChatMember",
+                json={"chat_id": GROUP_ID, "user_id": user_id, "until_date": until_date},
+            )
+            ban_data = ban_response.json()
+            if not ban_data.get("ok"):
+                print(f"Telegram banChatMember failed for {user_id}: {ban_data}")
+                return False
+
+            await client.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/unbanChatMember",
+                json={"chat_id": GROUP_ID, "user_id": user_id},
+            )
+        return True
+    except Exception as e:
+        print(f"Telegram remove user failed for {user_id}: {e}")
+        return False
 
 
 # ============ App Lifecycle ============
@@ -1370,6 +1424,153 @@ async def get_admin_stats(user: Dict = Depends(get_admin_user)):
 async def get_admin_operations(user: Dict = Depends(get_admin_user)):
     """Операционная сводка для контроля оплат, доступов и отмен."""
     return await db.get_admin_operations_summary()
+
+
+@app.get("/api/admin/console/summary")
+async def get_admin_console_summary(user: Dict = Depends(get_admin_user)):
+    """Короткая сводка для рабочего админ-пульта."""
+    return await db.get_admin_console_summary()
+
+
+@app.get("/api/admin/users")
+async def get_admin_users(
+    status: str = Query("all"),
+    q: str = Query(""),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    user: Dict = Depends(get_admin_user),
+):
+    """Список клиентов с фильтрами по состоянию подписки и платежей."""
+    return await db.list_admin_users(status=status, query=q, limit=limit, offset=offset)
+
+
+@app.get("/api/admin/users/{user_id}")
+async def get_admin_user_detail(user_id: int, user: Dict = Depends(get_admin_user)):
+    """Карточка клиента: подписка, платежи, отмены, тревоги, активность."""
+    detail = await db.get_admin_user_detail(user_id)
+    if not detail:
+        raise HTTPException(status_code=404, detail="User not found")
+    return detail
+
+
+@app.post("/api/admin/users/{user_id}/extend")
+async def admin_extend_user_subscription(
+    user_id: int,
+    action: AdminExtendSubscription,
+    admin: Dict = Depends(get_admin_user),
+):
+    """Ручное продление подписки."""
+    days = max(1, min(action.days, 365))
+    new_expires = await db.admin_extend_subscription(user_id, days, admin["user_id"])
+    return {"ok": True, "expires_at": new_expires}
+
+
+@app.post("/api/admin/users/{user_id}/revoke")
+async def admin_revoke_user_subscription(
+    user_id: int,
+    action: AdminRevokeSubscription,
+    admin: Dict = Depends(get_admin_user),
+):
+    """Ручная отмена доступа с попыткой убрать пользователя из группы."""
+    reason = (action.reason or "admin_revoke_web").strip() or "admin_revoke_web"
+    expires_at = await db.admin_revoke_subscription(user_id, admin["user_id"], reason)
+    removed = await remove_user_from_group(user_id)
+    return {"ok": True, "expires_at": expires_at, "removed_from_group": removed}
+
+
+@app.post("/api/admin/users/{user_id}/send-invite")
+async def admin_send_invite_link(user_id: int, admin: Dict = Depends(get_admin_user)):
+    """Создать одноразовую ссылку в группу и отправить её клиенту."""
+    invite_link = await create_one_time_invite_link()
+    if not invite_link:
+        await db.log_admin_event(
+            "admin_invite_link_failed",
+            f"Админ {admin['user_id']} не смог создать ссылку для пользователя {user_id}",
+            "critical",
+            user_id
+        )
+        raise HTTPException(status_code=500, detail="Invite link was not created")
+
+    sent = await send_telegram_message(
+        user_id,
+        "Ссылка для входа в закрытую группу:\n"
+        f"{invite_link}\n\n"
+        f"Ссылка одноразовая, действует {INVITE_TTL_HOURS} часов."
+    )
+    await db.log_admin_event(
+        "admin_invite_link_sent",
+        f"Админ {admin['user_id']} создал ссылку доступа. sent={sent}",
+        "info" if sent else "warning",
+        user_id
+    )
+    return {"ok": True, "invite_link": invite_link, "sent": sent}
+
+
+@app.post("/api/admin/users/{user_id}/autorenewal")
+async def admin_update_user_auto_renewal(
+    user_id: int,
+    action: AdminAutoRenewalUpdate,
+    admin: Dict = Depends(get_admin_user),
+):
+    """Ручное включение/выключение автопродления."""
+    info = await db.get_auto_renewal_info(user_id)
+    if action.enabled and not info["has_payment_method"]:
+        raise HTTPException(status_code=400, detail="Payment method is not linked")
+    await db.set_auto_renewal(user_id, action.enabled)
+    await db.log_admin_event(
+        "admin_auto_renewal_update",
+        f"Админ {admin['user_id']} установил auto_renewal={action.enabled}",
+        "info",
+        user_id
+    )
+    return {"ok": True, "enabled": action.enabled}
+
+
+@app.post("/api/admin/users/{user_id}/unlink-card")
+async def admin_unlink_user_card(user_id: int, admin: Dict = Depends(get_admin_user)):
+    """Ручная отвязка карты клиента."""
+    await db.clear_payment_method(user_id)
+    await db.save_cancellation(user_id, "card_unlinked_admin")
+    await db.log_admin_event(
+        "admin_payment_method_unlinked",
+        f"Админ {admin['user_id']} отвязал карту",
+        "info",
+        user_id
+    )
+    return {"ok": True}
+
+
+@app.get("/api/admin/payments")
+async def get_admin_payments(
+    status: str = Query("all"),
+    q: str = Query(""),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    user: Dict = Depends(get_admin_user),
+):
+    """Лента платежей с фильтрами."""
+    return await db.list_admin_payments(status=status, query=q, limit=limit, offset=offset)
+
+
+@app.get("/api/admin/events")
+async def get_admin_events(
+    state: str = Query("open"),
+    severity: str = Query("all"),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    user: Dict = Depends(get_admin_user),
+):
+    """Лента тревожных и служебных событий."""
+    return await db.list_admin_events(state=state, severity=severity, limit=limit, offset=offset)
+
+
+@app.post("/api/admin/events/{event_id}/resolve")
+async def resolve_admin_event(event_id: int, user: Dict = Depends(get_admin_user)):
+    """Закрыть тревожное событие после ручной проверки."""
+    ok = await db.mark_admin_event_resolved(event_id, True)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Event not found")
+    return {"ok": True}
 
 
 # ============ Feedback API ============

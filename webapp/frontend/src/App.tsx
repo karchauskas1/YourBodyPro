@@ -26,6 +26,7 @@ import { FoodCalendar } from './pages/FoodCalendar';
 import { Achievements } from './pages/Achievements';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { AdminOperations } from './pages/AdminOperations';
+import { AdminConsole } from './pages/AdminConsole';
 
 import './index.css';
 
@@ -285,6 +286,10 @@ function AuthenticatedApp() {
       <Route
         path="/admin/ops"
         element={<AdminOperations />}
+      />
+      <Route
+        path="/admin/console"
+        element={<AdminConsole />}
       />
 
       {/* Fallback */}

@@ -147,6 +147,108 @@ export interface AdminOperations {
   }>;
 }
 
+export interface AdminConsoleSummary {
+  total_users: number;
+  active_users: number;
+  expiring_3d: number;
+  expired_users: number;
+  never_paid: number;
+  pending_payments: number;
+  old_pending: number;
+  open_events: number;
+  critical_events: number;
+  auto_renewal_enabled: number;
+  saved_cards: number;
+  renewal_failures: number;
+}
+
+export interface AdminUserListItem {
+  user_id: number;
+  username: string;
+  full_name: string;
+  phone: string;
+  expires_at: number;
+  status: 'active' | 'expiring' | 'expired' | 'no_access';
+  days_left: number;
+  auto_renewal: boolean;
+  has_payment_method: boolean;
+  auto_renewal_failures: number;
+  auto_renewal_agreed_at?: number | null;
+  payments_count: number;
+  paid_total: number;
+  last_payment_status: string;
+  last_payment_at?: number | null;
+  last_cancel_reason: string;
+  last_cancel_at?: number | null;
+  open_events: number;
+}
+
+export interface AdminPaymentItem {
+  payment_id: string;
+  user_id: number;
+  amount: number;
+  status: string;
+  created_at: number;
+  username: string;
+  full_name: string;
+  user_status: string;
+}
+
+export interface AdminEventItem {
+  id: number;
+  event_type: string;
+  severity: string;
+  user_id?: number;
+  payment_id?: string;
+  message: string;
+  resolved: boolean;
+  created_at: number;
+  username: string;
+  full_name: string;
+}
+
+export interface AdminUserDetail {
+  user: AdminUserListItem & {
+    payment_method_id: string;
+    auto_renewal_agreed_at?: number | null;
+    referral_code: string;
+  };
+  profile: UserProfile | null;
+  payments: Array<{
+    payment_id: string;
+    amount: number;
+    status: string;
+    created_at: number;
+  }>;
+  cancellations: Array<{
+    reason: string;
+    created_at: number;
+  }>;
+  events: Array<{
+    id: number;
+    event_type: string;
+    severity: string;
+    payment_id?: string;
+    message: string;
+    resolved: boolean;
+    created_at: number;
+  }>;
+  activity: {
+    food_entries: number;
+    sleep_entries: number;
+    workout_entries: number;
+    last_food_at?: number | null;
+    last_workout_at?: number | null;
+  };
+}
+
+export interface Paginated<T> {
+  items: T[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 // API methods
 export const api = {
   // Health check
@@ -403,6 +505,75 @@ export const api = {
 
   getAdminOperations: () =>
     apiFetch<AdminOperations>('/admin/operations'),
+
+  getAdminConsoleSummary: () =>
+    apiFetch<AdminConsoleSummary>('/admin/console/summary'),
+
+  getAdminUsers: (params: { status?: string; q?: string; limit?: number; offset?: number } = {}) => {
+    const query = new URLSearchParams();
+    if (params.status) query.set('status', params.status);
+    if (params.q) query.set('q', params.q);
+    if (params.limit) query.set('limit', String(params.limit));
+    if (params.offset) query.set('offset', String(params.offset));
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    return apiFetch<Paginated<AdminUserListItem>>(`/admin/users${suffix}`);
+  },
+
+  getAdminUserDetail: (userId: number) =>
+    apiFetch<AdminUserDetail>(`/admin/users/${userId}`),
+
+  extendAdminUserSubscription: (userId: number, days: number) =>
+    apiFetch<{ ok: boolean; expires_at: number }>(`/admin/users/${userId}/extend`, {
+      method: 'POST',
+      body: JSON.stringify({ days }),
+    }),
+
+  revokeAdminUserSubscription: (userId: number, reason = 'admin_revoke_web') =>
+    apiFetch<{ ok: boolean; expires_at: number; removed_from_group: boolean }>(`/admin/users/${userId}/revoke`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    }),
+
+  sendAdminInvite: (userId: number) =>
+    apiFetch<{ ok: boolean; invite_link: string; sent: boolean }>(`/admin/users/${userId}/send-invite`, {
+      method: 'POST',
+    }),
+
+  updateAdminUserAutoRenewal: (userId: number, enabled: boolean) =>
+    apiFetch<{ ok: boolean; enabled: boolean }>(`/admin/users/${userId}/autorenewal`, {
+      method: 'POST',
+      body: JSON.stringify({ enabled }),
+    }),
+
+  unlinkAdminUserCard: (userId: number) =>
+    apiFetch<{ ok: boolean }>(`/admin/users/${userId}/unlink-card`, {
+      method: 'POST',
+    }),
+
+  getAdminPayments: (params: { status?: string; q?: string; limit?: number; offset?: number } = {}) => {
+    const query = new URLSearchParams();
+    if (params.status) query.set('status', params.status);
+    if (params.q) query.set('q', params.q);
+    if (params.limit) query.set('limit', String(params.limit));
+    if (params.offset) query.set('offset', String(params.offset));
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    return apiFetch<Paginated<AdminPaymentItem>>(`/admin/payments${suffix}`);
+  },
+
+  getAdminEvents: (params: { state?: string; severity?: string; limit?: number; offset?: number } = {}) => {
+    const query = new URLSearchParams();
+    if (params.state) query.set('state', params.state);
+    if (params.severity) query.set('severity', params.severity);
+    if (params.limit) query.set('limit', String(params.limit));
+    if (params.offset) query.set('offset', String(params.offset));
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    return apiFetch<Paginated<AdminEventItem>>(`/admin/events${suffix}`);
+  },
+
+  resolveAdminEvent: (eventId: number) =>
+    apiFetch<{ ok: boolean }>(`/admin/events/${eventId}/resolve`, {
+      method: 'POST',
+    }),
 
   // Feedback
   sendFeedback: (message: string) =>

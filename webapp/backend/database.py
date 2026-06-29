@@ -1286,6 +1286,507 @@ class HabitDB:
             "events": open_events,
         }
 
+    def _admin_user_status(self, expires_at: int, now_ts: int) -> str:
+        if expires_at and expires_at > now_ts:
+            if expires_at <= now_ts + 3 * 86400:
+                return "expiring"
+            return "active"
+        if expires_at and expires_at > 0:
+            return "expired"
+        return "no_access"
+
+    async def get_admin_console_summary(self) -> Dict[str, int]:
+        now_ts = int(datetime.now(MSK).timestamp())
+        soon_ts = now_ts + 3 * 86400
+        pending_cutoff = now_ts - 15 * 60
+
+        async def scalar(sql: str, params: tuple = ()) -> int:
+            cur = await self.conn.execute(sql, params)
+            row = await cur.fetchone()
+            return row[0] or 0
+
+        return {
+            "total_users": await scalar("SELECT COUNT(*) FROM users"),
+            "active_users": await scalar("SELECT COUNT(*) FROM users WHERE expires_at > ?", (now_ts,)),
+            "expiring_3d": await scalar(
+                "SELECT COUNT(*) FROM users WHERE expires_at > ? AND expires_at <= ?",
+                (now_ts, soon_ts)
+            ),
+            "expired_users": await scalar(
+                "SELECT COUNT(*) FROM users WHERE expires_at > 0 AND expires_at <= ?",
+                (now_ts,)
+            ),
+            "never_paid": await scalar(
+                """
+                SELECT COUNT(*) FROM users u
+                WHERE COALESCE(u.expires_at, 0) = 0
+                  AND NOT EXISTS (
+                    SELECT 1 FROM payments p
+                    WHERE p.user_id = u.user_id AND p.status = 'succeeded'
+                  )
+                """
+            ),
+            "pending_payments": await scalar(
+                "SELECT COUNT(*) FROM payments WHERE status IN ('pending', 'created')"
+            ),
+            "old_pending": await scalar(
+                "SELECT COUNT(*) FROM payments WHERE status IN ('pending', 'created') AND created_at <= ?",
+                (pending_cutoff,)
+            ),
+            "open_events": await scalar("SELECT COUNT(*) FROM admin_events WHERE resolved = 0"),
+            "critical_events": await scalar(
+                "SELECT COUNT(*) FROM admin_events WHERE resolved = 0 AND severity = 'critical'"
+            ),
+            "auto_renewal_enabled": await scalar("SELECT COUNT(*) FROM users WHERE auto_renewal = 1"),
+            "saved_cards": await scalar(
+                "SELECT COUNT(*) FROM users WHERE payment_method_id IS NOT NULL AND payment_method_id != ''"
+            ),
+            "renewal_failures": await scalar(
+                "SELECT COUNT(*) FROM users WHERE COALESCE(auto_renewal_failures, 0) > 0"
+            ),
+        }
+
+    async def list_admin_users(
+        self,
+        status: str = "all",
+        query: str = "",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Dict[str, Any]:
+        now_ts = int(datetime.now(MSK).timestamp())
+        soon_ts = now_ts + 3 * 86400
+        where = []
+        params: list[Any] = []
+
+        if status == "active":
+            where.append("u.expires_at > ?")
+            params.append(now_ts)
+        elif status == "expiring":
+            where.append("u.expires_at > ? AND u.expires_at <= ?")
+            params.extend([now_ts, soon_ts])
+        elif status == "expired":
+            where.append("u.expires_at > 0 AND u.expires_at <= ?")
+            params.append(now_ts)
+        elif status == "no_access":
+            where.append("COALESCE(u.expires_at, 0) = 0")
+        elif status == "renewal":
+            where.append("u.auto_renewal = 1")
+        elif status == "card":
+            where.append("u.payment_method_id IS NOT NULL AND u.payment_method_id != ''")
+        elif status == "issues":
+            where.append(
+                """
+                (
+                  COALESCE(u.auto_renewal_failures, 0) > 0
+                  OR EXISTS (
+                    SELECT 1 FROM admin_events ae
+                    WHERE ae.user_id = u.user_id AND ae.resolved = 0
+                  )
+                  OR EXISTS (
+                    SELECT 1 FROM payments p
+                    WHERE p.user_id = u.user_id
+                      AND p.status IN ('pending', 'created')
+                      AND p.created_at <= ?
+                  )
+                )
+                """
+            )
+            params.append(now_ts - 15 * 60)
+
+        query = query.strip()
+        if query:
+            like = f"%{query.lower()}%"
+            where.append(
+                """
+                (
+                  CAST(u.user_id AS TEXT) LIKE ?
+                  OR LOWER(COALESCE(u.username, '')) LIKE ?
+                  OR LOWER(COALESCE(u.full_name, '')) LIKE ?
+                  OR LOWER(COALESCE(u.phone, '')) LIKE ?
+                )
+                """
+            )
+            params.extend([like, like, like, like])
+
+        where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+
+        cur = await self.conn.execute(f"SELECT COUNT(*) FROM users u {where_sql}", tuple(params))
+        total = (await cur.fetchone())[0]
+
+        cur = await self.conn.execute(
+            f"""
+            SELECT
+              u.user_id,
+              COALESCE(u.username, ''),
+              COALESCE(u.full_name, ''),
+              COALESCE(u.phone, ''),
+              COALESCE(u.expires_at, 0),
+              COALESCE(u.auto_renewal, 0),
+              COALESCE(u.payment_method_id, ''),
+              COALESCE(u.auto_renewal_failures, 0),
+              COALESCE(u.auto_renewal_agreed_at, 0),
+              (SELECT COUNT(*) FROM payments p WHERE p.user_id = u.user_id),
+              (SELECT COALESCE(SUM(p.amount), 0) FROM payments p WHERE p.user_id = u.user_id AND p.status = 'succeeded'),
+              (SELECT p.status FROM payments p WHERE p.user_id = u.user_id ORDER BY p.created_at DESC LIMIT 1),
+              (SELECT p.created_at FROM payments p WHERE p.user_id = u.user_id ORDER BY p.created_at DESC LIMIT 1),
+              (SELECT c.reason FROM cancellations c WHERE c.user_id = u.user_id ORDER BY c.created_at DESC LIMIT 1),
+              (SELECT c.created_at FROM cancellations c WHERE c.user_id = u.user_id ORDER BY c.created_at DESC LIMIT 1),
+              (SELECT COUNT(*) FROM admin_events ae WHERE ae.user_id = u.user_id AND ae.resolved = 0)
+            FROM users u
+            {where_sql}
+            ORDER BY
+              CASE
+                WHEN u.expires_at > ? AND u.expires_at <= ? THEN 0
+                WHEN u.expires_at > ? THEN 1
+                WHEN u.expires_at > 0 THEN 2
+                ELSE 3
+              END,
+              u.expires_at ASC
+            LIMIT ? OFFSET ?
+            """,
+            tuple(params + [now_ts, soon_ts, now_ts, limit, offset])
+        )
+        users = []
+        for row in await cur.fetchall():
+            expires_at = row[4] or 0
+            users.append({
+                "user_id": row[0],
+                "username": row[1],
+                "full_name": row[2],
+                "phone": row[3],
+                "expires_at": expires_at,
+                "status": self._admin_user_status(expires_at, now_ts),
+                "days_left": max(0, (expires_at - now_ts) // 86400) if expires_at > now_ts else 0,
+                "auto_renewal": bool(row[5]),
+                "has_payment_method": bool(row[6]),
+                "auto_renewal_failures": row[7] or 0,
+                "auto_renewal_agreed_at": row[8] or None,
+                "payments_count": row[9] or 0,
+                "paid_total": row[10] or 0,
+                "last_payment_status": row[11] or "",
+                "last_payment_at": row[12],
+                "last_cancel_reason": row[13] or "",
+                "last_cancel_at": row[14],
+                "open_events": row[15] or 0,
+            })
+
+        return {"items": users, "total": total, "limit": limit, "offset": offset}
+
+    async def get_admin_user_detail(self, user_id: int) -> Optional[Dict[str, Any]]:
+        now_ts = int(datetime.now(MSK).timestamp())
+        cur = await self.conn.execute(
+            """
+            SELECT
+              user_id, COALESCE(username, ''), COALESCE(full_name, ''),
+              COALESCE(phone, ''), COALESCE(expires_at, 0),
+              COALESCE(payment_method_id, ''), COALESCE(auto_renewal, 0),
+              COALESCE(auto_renewal_agreed_at, 0), COALESCE(auto_renewal_failures, 0),
+              COALESCE(referral_code, ''),
+              (SELECT COUNT(*) FROM payments p WHERE p.user_id = users.user_id),
+              (SELECT COALESCE(SUM(p.amount), 0) FROM payments p WHERE p.user_id = users.user_id AND p.status = 'succeeded')
+            FROM users
+            WHERE user_id = ?
+            """,
+            (user_id,)
+        )
+        row = await cur.fetchone()
+        if not row:
+            return None
+
+        expires_at = row[4] or 0
+        user = {
+            "user_id": row[0],
+            "username": row[1],
+            "full_name": row[2],
+            "phone": row[3],
+            "expires_at": expires_at,
+            "status": self._admin_user_status(expires_at, now_ts),
+            "days_left": max(0, (expires_at - now_ts) // 86400) if expires_at > now_ts else 0,
+            "payment_method_id": row[5],
+            "has_payment_method": bool(row[5]),
+            "auto_renewal": bool(row[6]),
+            "auto_renewal_agreed_at": row[7] or None,
+            "auto_renewal_failures": row[8] or 0,
+            "referral_code": row[9],
+            "payments_count": row[10] or 0,
+            "paid_total": row[11] or 0,
+            "last_payment_status": "",
+            "last_payment_at": None,
+            "last_cancel_reason": "",
+            "last_cancel_at": None,
+            "open_events": 0,
+        }
+
+        cur = await self.conn.execute(
+            """
+            SELECT payment_id, amount, status, created_at
+            FROM payments
+            WHERE user_id = ?
+            ORDER BY created_at DESC
+            LIMIT 30
+            """,
+            (user_id,)
+        )
+        payments = [
+            {"payment_id": r[0], "amount": r[1], "status": r[2], "created_at": r[3]}
+            for r in await cur.fetchall()
+        ]
+
+        cur = await self.conn.execute(
+            """
+            SELECT reason, created_at
+            FROM cancellations
+            WHERE user_id = ?
+            ORDER BY created_at DESC
+            LIMIT 20
+            """,
+            (user_id,)
+        )
+        cancellations = [
+            {"reason": r[0], "created_at": r[1]}
+            for r in await cur.fetchall()
+        ]
+
+        cur = await self.conn.execute(
+            """
+            SELECT id, event_type, severity, payment_id, message, resolved, created_at
+            FROM admin_events
+            WHERE user_id = ?
+            ORDER BY created_at DESC
+            LIMIT 20
+            """,
+            (user_id,)
+        )
+        events = [
+            {
+                "id": r[0],
+                "event_type": r[1],
+                "severity": r[2],
+                "payment_id": r[3],
+                "message": r[4],
+                "resolved": bool(r[5]),
+                "created_at": r[6],
+            }
+            for r in await cur.fetchall()
+        ]
+
+        profile = await self.get_user_profile(user_id)
+
+        cur = await self.conn.execute(
+            """
+            SELECT
+              (SELECT COUNT(*) FROM food_entries WHERE user_id = ?),
+              (SELECT COUNT(*) FROM sleep_entries WHERE user_id = ?),
+              (SELECT COUNT(*) FROM workout_entries WHERE user_id = ?),
+              (SELECT MAX(created_at) FROM food_entries WHERE user_id = ?),
+              (SELECT MAX(created_at) FROM workout_entries WHERE user_id = ?)
+            """,
+            (user_id, user_id, user_id, user_id, user_id)
+        )
+        activity_row = await cur.fetchone()
+        activity = {
+            "food_entries": activity_row[0] or 0,
+            "sleep_entries": activity_row[1] or 0,
+            "workout_entries": activity_row[2] or 0,
+            "last_food_at": activity_row[3],
+            "last_workout_at": activity_row[4],
+        }
+
+        return {
+            "user": user,
+            "profile": profile,
+            "payments": payments,
+            "cancellations": cancellations,
+            "events": events,
+            "activity": activity,
+        }
+
+    async def list_admin_payments(
+        self,
+        status: str = "all",
+        query: str = "",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Dict[str, Any]:
+        where = []
+        params: list[Any] = []
+
+        if status != "all":
+            if status == "pending":
+                where.append("p.status IN ('pending', 'created')")
+            else:
+                where.append("p.status = ?")
+                params.append(status)
+
+        query = query.strip()
+        if query:
+            like = f"%{query.lower()}%"
+            where.append(
+                """
+                (
+                  CAST(p.user_id AS TEXT) LIKE ?
+                  OR LOWER(COALESCE(p.payment_id, '')) LIKE ?
+                  OR LOWER(COALESCE(u.username, '')) LIKE ?
+                  OR LOWER(COALESCE(u.full_name, '')) LIKE ?
+                )
+                """
+            )
+            params.extend([like, like, like, like])
+
+        where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+
+        cur = await self.conn.execute(
+            f"SELECT COUNT(*) FROM payments p LEFT JOIN users u ON u.user_id = p.user_id {where_sql}",
+            tuple(params)
+        )
+        total = (await cur.fetchone())[0]
+
+        cur = await self.conn.execute(
+            f"""
+            SELECT p.payment_id, p.user_id, p.amount, p.status, p.created_at,
+                   COALESCE(u.username, ''), COALESCE(u.full_name, ''),
+                   COALESCE(u.expires_at, 0)
+            FROM payments p
+            LEFT JOIN users u ON u.user_id = p.user_id
+            {where_sql}
+            ORDER BY p.created_at DESC
+            LIMIT ? OFFSET ?
+            """,
+            tuple(params + [limit, offset])
+        )
+        rows = await cur.fetchall()
+        return {
+            "items": [
+                {
+                    "payment_id": r[0],
+                    "user_id": r[1],
+                    "amount": r[2],
+                    "status": r[3],
+                    "created_at": r[4],
+                    "username": r[5],
+                    "full_name": r[6],
+                    "user_status": self._admin_user_status(r[7] or 0, int(datetime.now(MSK).timestamp())),
+                }
+                for r in rows
+            ],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
+
+    async def list_admin_events(
+        self,
+        state: str = "open",
+        severity: str = "all",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Dict[str, Any]:
+        where = []
+        params: list[Any] = []
+        if state == "open":
+            where.append("ae.resolved = 0")
+        elif state == "resolved":
+            where.append("ae.resolved = 1")
+        if severity != "all":
+            where.append("ae.severity = ?")
+            params.append(severity)
+        where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+
+        cur = await self.conn.execute(f"SELECT COUNT(*) FROM admin_events ae {where_sql}", tuple(params))
+        total = (await cur.fetchone())[0]
+
+        cur = await self.conn.execute(
+            f"""
+            SELECT ae.id, ae.event_type, ae.severity, ae.user_id, ae.payment_id,
+                   ae.message, ae.resolved, ae.created_at,
+                   COALESCE(u.username, ''), COALESCE(u.full_name, '')
+            FROM admin_events ae
+            LEFT JOIN users u ON u.user_id = ae.user_id
+            {where_sql}
+            ORDER BY ae.resolved ASC, ae.created_at DESC
+            LIMIT ? OFFSET ?
+            """,
+            tuple(params + [limit, offset])
+        )
+        return {
+            "items": [
+                {
+                    "id": r[0],
+                    "event_type": r[1],
+                    "severity": r[2],
+                    "user_id": r[3],
+                    "payment_id": r[4],
+                    "message": r[5],
+                    "resolved": bool(r[6]),
+                    "created_at": r[7],
+                    "username": r[8],
+                    "full_name": r[9],
+                }
+                for r in await cur.fetchall()
+            ],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
+
+    async def mark_admin_event_resolved(self, event_id: int, resolved: bool = True) -> bool:
+        cur = await self.conn.execute(
+            "UPDATE admin_events SET resolved = ? WHERE id = ?",
+            (1 if resolved else 0, event_id)
+        )
+        await self.conn.commit()
+        return cur.rowcount > 0
+
+    async def admin_extend_subscription(self, user_id: int, days: int, admin_id: int) -> int:
+        now_ts = int(datetime.now(MSK).timestamp())
+        cur = await self.conn.execute(
+            "SELECT COALESCE(expires_at, 0) FROM users WHERE user_id = ?",
+            (user_id,)
+        )
+        row = await cur.fetchone()
+        base_ts = max(now_ts, row[0] if row else 0)
+        new_expires = base_ts + days * 86400
+        await self.conn.execute(
+            """
+            INSERT INTO users(user_id, expires_at, remind_3_sent, remind_2_sent, remind_1_sent)
+            VALUES (?, ?, 0, 0, 0)
+            ON CONFLICT(user_id) DO UPDATE SET
+              expires_at = excluded.expires_at,
+              remind_3_sent = 0,
+              remind_2_sent = 0,
+              remind_1_sent = 0
+            """,
+            (user_id, new_expires)
+        )
+        await self.log_admin_event(
+            "admin_extend_subscription",
+            f"Админ {admin_id} продлил подписку на {days} дней",
+            "info",
+            user_id
+        )
+        await self.conn.commit()
+        return new_expires
+
+    async def admin_revoke_subscription(self, user_id: int, admin_id: int, reason: str = "admin_revoke_web") -> int:
+        now_ts = int(datetime.now(MSK).timestamp())
+        await self.conn.execute(
+            """
+            UPDATE users
+            SET expires_at = ?, payment_method_id = NULL, auto_renewal = 0, auto_renewal_failures = 0
+            WHERE user_id = ?
+            """,
+            (now_ts - 1, user_id)
+        )
+        await self.save_cancellation(user_id, reason)
+        await self.log_admin_event(
+            "admin_revoke_subscription",
+            f"Админ {admin_id} отменил доступ. reason={reason}",
+            "warning",
+            user_id
+        )
+        await self.conn.commit()
+        return now_ts - 1
+
     async def get_daily_new_users(self, days: int) -> List[Dict]:
         """Daily count of first-time paying users."""
         cutoff = int(datetime.now(MSK).timestamp()) - days * 86400

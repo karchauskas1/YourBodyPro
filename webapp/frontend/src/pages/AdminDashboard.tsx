@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Layout, Card, LoadingSpinner, EmptyState, Button } from '../components/Layout';
 import { api } from '../api/client';
-import { ArrowLeft, Users, DollarSign, TrendingUp, BarChart3, Gift, ClipboardList } from 'lucide-react';
+import { ArrowLeft, Users, DollarSign, TrendingUp, BarChart3, Gift, ClipboardList, UserCog } from 'lucide-react';
 
 interface AdminStats {
   users: { total: number; active: number; expired: number; new_7d: number; new_30d: number };
@@ -87,7 +87,7 @@ export function AdminDashboard() {
 
   return (
     <Layout>
-      <div className="flex items-center gap-3 mb-6">
+      <div className="flex flex-wrap items-center gap-3 mb-6">
         <button
           onClick={() => navigate('/')}
           className="p-2 rounded-xl"
@@ -99,8 +99,16 @@ export function AdminDashboard() {
           Аналитика
         </h1>
         <button
-          onClick={() => navigate('/admin/ops')}
+          onClick={() => navigate('/admin/console')}
           className="ml-auto flex items-center gap-1 px-3 py-2 rounded-xl text-sm"
+          style={{ background: 'var(--accent)', color: '#fff' }}
+        >
+          <UserCog className="w-4 h-4" />
+          Пульт
+        </button>
+        <button
+          onClick={() => navigate('/admin/ops')}
+          className="flex items-center gap-1 px-3 py-2 rounded-xl text-sm"
           style={{ background: 'var(--bg-glass)', color: 'var(--text-primary)' }}
         >
           <ClipboardList className="w-4 h-4" />
