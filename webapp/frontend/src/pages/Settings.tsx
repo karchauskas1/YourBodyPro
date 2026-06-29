@@ -16,7 +16,8 @@ import {
   Check,
   Palette,
   Sun,
-  // RefreshCw,  // TODO: включить после рекуррентов
+  CreditCard,
+  RefreshCw,
   Gift,
   Copy,
   Trophy,
@@ -34,7 +35,8 @@ export function Settings() {
   const [feedbackText, setFeedbackText] = useState('');
   const [feedbackSending, setFeedbackSending] = useState(false);
   const [feedbackSent, setFeedbackSent] = useState(false);
-  // const [autoRenewal, setAutoRenewal] = useState<{ enabled: boolean; has_payment_method: boolean } | null>(null);  // TODO: включить после рекуррентов
+  const [autoRenewal, setAutoRenewal] = useState<{ enabled: boolean; has_payment_method: boolean; failures: number } | null>(null);
+  const [autoRenewalBusy, setAutoRenewalBusy] = useState(false);
   const [referralInfo, setReferralInfo] = useState<{
     code: string; link: string;
     stats: { total_invited: number; total_paid: number; available_rewards: number };
@@ -61,9 +63,39 @@ export function Settings() {
   }, [profile]);
 
   useEffect(() => {
-    // api.getAutoRenewalStatus().then(setAutoRenewal).catch(() => {});  // TODO: включить после рекуррентов
+    api.getAutoRenewalStatus().then(setAutoRenewal).catch(() => {});
     api.getReferralInfo().then(setReferralInfo).catch(() => {});
   }, []);
+
+  const handleToggleAutoRenewal = async () => {
+    setAutoRenewalBusy(true);
+    haptic('medium');
+    try {
+      const result = await api.toggleAutoRenewal();
+      setAutoRenewal((current) => current ? { ...current, enabled: result.enabled } : current);
+      haptic('success');
+    } catch (err) {
+      console.error('Failed to toggle auto renewal:', err);
+      haptic('error');
+    } finally {
+      setAutoRenewalBusy(false);
+    }
+  };
+
+  const handleUnlinkPaymentMethod = async () => {
+    setAutoRenewalBusy(true);
+    haptic('medium');
+    try {
+      await api.unlinkPaymentMethod();
+      setAutoRenewal({ enabled: false, has_payment_method: false, failures: 0 });
+      haptic('success');
+    } catch (err) {
+      console.error('Failed to unlink payment method:', err);
+      haptic('error');
+    } finally {
+      setAutoRenewalBusy(false);
+    }
+  };
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -119,6 +151,47 @@ export function Settings() {
       </div>
 
       <div className="space-y-4">
+        <Card>
+          <div className="flex items-center gap-2 mb-3">
+            <CreditCard className="w-5 h-5" style={{ color: 'var(--accent)' }} />
+            <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>
+              Оплата и продление
+            </h3>
+          </div>
+
+          <div className="p-3 rounded-xl mb-3" style={{ background: 'var(--bg-secondary)' }}>
+            <div className="text-sm mb-1" style={{ color: 'var(--text-primary)' }}>
+              {autoRenewal?.enabled ? 'Автопродление включено' : 'Автопродление отключено'}
+            </div>
+            <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+              {autoRenewal?.has_payment_method
+                ? 'Карта сохранена. Её можно отвязать в любой момент.'
+                : 'Карта не привязана. После следующей оплаты здесь появится управление картой.'}
+            </div>
+          </div>
+
+          {autoRenewal?.has_payment_method && (
+            <div className="grid grid-cols-1 gap-2">
+              <Button
+                onClick={handleToggleAutoRenewal}
+                loading={autoRenewalBusy}
+                variant={autoRenewal.enabled ? 'secondary' : 'primary'}
+              >
+                <RefreshCw className="w-5 h-5 mr-2" />
+                {autoRenewal.enabled ? 'Отключить автопродление' : 'Включить автопродление'}
+              </Button>
+              <Button
+                onClick={handleUnlinkPaymentMethod}
+                loading={autoRenewalBusy}
+                variant="secondary"
+              >
+                <CreditCard className="w-5 h-5 mr-2" />
+                Отвязать карту
+              </Button>
+            </div>
+          )}
+        </Card>
+
         {/* Features */}
         <Card>
           <h3 className="font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>

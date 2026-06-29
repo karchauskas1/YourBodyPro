@@ -130,6 +130,11 @@ export interface AdminOperations {
   retention: {
     auto_renewal_enabled: number;
     saved_payment_methods: number;
+    auto_renewal_disabled_with_card: number;
+    auto_renewal_failures: number;
+    renewal_disabled_total: number;
+    cards_unlinked_total: number;
+    immediate_cancel_total: number;
   };
   events: Array<{
     id: number;
@@ -358,6 +363,12 @@ export const api = {
 
   toggleAutoRenewal: () =>
     apiFetch<{ enabled: boolean }>('/autorenewal/toggle', { method: 'POST' }),
+
+  unlinkPaymentMethod: () =>
+    apiFetch<{ ok: boolean; enabled: boolean; has_payment_method: boolean }>(
+      '/autorenewal/unlink',
+      { method: 'POST' }
+    ),
 
   // Referral
   getReferralInfo: () =>

@@ -77,6 +77,10 @@ class FoodEntryUpdate(BaseModel):
     description: str
 
 
+class AutoRenewalAction(BaseModel):
+    reason: Optional[str] = "webapp"
+
+
 class SleepEntry(BaseModel):
     score: int  # 1-5
     date: Optional[str] = None  # '2025-01-18'
@@ -1009,13 +1013,16 @@ async def create_payment(
                 "return_url": os.getenv("WEBAPP_URL", "https://yourbody.app")
             },
             "capture": True,
-            # "save_payment_method": True,  # TODO: включить после подключения рекуррентов в YooKassa
+            "save_payment_method": True,
             "description": description,
             "metadata": {
                 "user_id": str(user_id),
                 "username": username,
                 "phone": phone or "",
-                "source": "webapp"
+                "source": "webapp",
+                "auto_renewal": "monthly",
+                "auto_renewal_price": str(MONTH_PRICE),
+                "payment_amount": str(actual_price),
             }
         }
 
@@ -1065,12 +1072,12 @@ async def create_payment(
             )
 
         # Сохраняем платёж в БД
-        await db.save_payment(user_id, payment_data["id"], MONTH_PRICE, payment_data.get("status", "pending"))
+        await db.save_payment(user_id, payment_data["id"], actual_price, payment_data.get("status", "pending"))
 
         return {
             "payment_id": payment_data["id"],
             "confirmation_url": confirmation_url,
-            "amount": MONTH_PRICE
+            "amount": actual_price
         }
 
     except requests.RequestException as e:
@@ -1095,40 +1102,35 @@ async def check_payment(
 
         user_id = user['user_id']
 
-        # Получаем payment_id из тела запроса
-        # Но для безопасности проверяем все pending платежи пользователя
-        body = {}
-        payment_id = None
+        pending_payments = await db.get_pending_payments(user_id)
+        if not pending_payments:
+            return {
+                "status": "pending",
+                "subscription_active": False,
+                "message": "Нет платежа на проверку. Создайте новый платёж."
+            }
 
-        # Если передан payment_id — проверяем конкретный
-        # Иначе — ищем последний pending платёж пользователя
-        # (payment_id может прийти через query или body)
-
-        # Проверяем через YooKassa API — ищем все платежи с metadata.user_id
-        url = "https://api.yookassa.ru/v3/payments"
-        response = requests.get(
-            url,
-            params={
-                "status": "succeeded",
-                "limit": 10,
-            },
-            auth=HTTPBasicAuth(YOOKASSA_SHOP_ID, YOOKASSA_SECRET_KEY),
-            timeout=10
-        )
-
-        if response.status_code != 200:
-            print(f"YooKassa list error: {response.status_code} {response.text}")
-            raise HTTPException(status_code=500, detail="Failed to check payments")
-
-        data = response.json()
-        items = data.get("items", [])
-
-        # Ищем успешный платёж для этого пользователя
         found_payment = None
-        for item in items:
+        for pending in pending_payments:
+            payment_id = pending["payment_id"]
+            response = requests.get(
+                f"https://api.yookassa.ru/v3/payments/{payment_id}",
+                auth=HTTPBasicAuth(YOOKASSA_SHOP_ID, YOOKASSA_SECRET_KEY),
+                timeout=10
+            )
+
+            if response.status_code != 200:
+                print(f"YooKassa payment check error: {response.status_code} {response.text}")
+                raise HTTPException(status_code=500, detail="Failed to check payment")
+
+            item = response.json()
             metadata = item.get("metadata", {})
             meta_user_id = metadata.get("user_id")
-            if meta_user_id and str(meta_user_id) == str(user_id):
+            if str(meta_user_id) != str(user_id):
+                continue
+
+            await db.update_payment_status(payment_id, item.get("status", "pending"))
+            if item.get("status") == "succeeded":
                 found_payment = item
                 break
 
@@ -1192,12 +1194,32 @@ async def get_autorenewal_status(user: Dict = Depends(get_current_user)):
 
 
 @app.post("/api/autorenewal/toggle")
-async def toggle_autorenewal(user: Dict = Depends(get_current_user)):
+async def toggle_autorenewal(
+    action: Optional[AutoRenewalAction] = None,
+    user: Dict = Depends(get_current_user)
+):
     """Включить/выключить автопродление"""
     info = await db.get_auto_renewal_info(user['user_id'])
     new_state = not info["enabled"]
+    if new_state and not info["has_payment_method"]:
+        raise HTTPException(status_code=400, detail="Payment method is not linked")
     await db.set_auto_renewal(user['user_id'], new_state)
+    if not new_state:
+        reason = (action.reason if action else "webapp") or "webapp"
+        await db.save_cancellation(user['user_id'], f"renewal_off_{reason}")
     return {"enabled": new_state}
+
+
+@app.post("/api/autorenewal/unlink")
+async def unlink_payment_method(
+    action: Optional[AutoRenewalAction] = None,
+    user: Dict = Depends(get_current_user)
+):
+    """Отвязать карту: удалить сохранённый способ оплаты из нашей системы"""
+    reason = (action.reason if action else "webapp") or "webapp"
+    await db.clear_payment_method(user['user_id'])
+    await db.save_cancellation(user['user_id'], f"card_unlinked_{reason}")
+    return {"ok": True, "enabled": False, "has_payment_method": False}
 
 
 # ============ Referral API ============

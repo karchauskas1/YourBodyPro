@@ -41,7 +41,24 @@ function reasonLabel(reason: string): string {
     other_service: 'Другой формат',
     other: 'Другая причина',
     admin_revoke: 'Отмена админом',
+    payment_failed: 'Не прошла оплата',
+    webapp: 'WebApp',
   };
+
+  const prefixes: Record<string, string> = {
+    renewal_off: 'Отключил автопродление',
+    card_unlinked: 'Отвязал карту',
+    immediate_cancel: 'Закрыл доступ сразу',
+  };
+
+  for (const [prefix, label] of Object.entries(prefixes)) {
+    const fullPrefix = `${prefix}_`;
+    if (reason.startsWith(fullPrefix)) {
+      const base = reason.slice(fullPrefix.length);
+      return `${label}: ${labels[base] || base}`;
+    }
+  }
+
   return labels[reason] || reason || 'Не указано';
 }
 
@@ -150,6 +167,11 @@ export function AdminOperations() {
           <div className="grid grid-cols-2 gap-2">
             <StatCard label="Автопродление" value={data.retention.auto_renewal_enabled} tone={data.retention.auto_renewal_enabled > 0 ? 'success' : 'warning'} />
             <StatCard label="Сохранённые карты" value={data.retention.saved_payment_methods} tone={data.retention.saved_payment_methods > 0 ? 'success' : 'warning'} />
+            <StatCard label="Карта без продления" value={data.retention.auto_renewal_disabled_with_card} tone={data.retention.auto_renewal_disabled_with_card > 0 ? 'warning' : 'default'} />
+            <StatCard label="Ошибки списаний" value={data.retention.auto_renewal_failures} tone={data.retention.auto_renewal_failures > 0 ? 'danger' : 'default'} />
+            <StatCard label="Отключили продление" value={data.retention.renewal_disabled_total} />
+            <StatCard label="Отвязали карту" value={data.retention.cards_unlinked_total} />
+            <StatCard label="Закрыли сразу" value={data.retention.immediate_cancel_total} tone={data.retention.immediate_cancel_total > 0 ? 'warning' : 'default'} />
           </div>
         </Card>
 

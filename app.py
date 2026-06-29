@@ -138,6 +138,18 @@ CANCEL_REASONS: list[tuple[str, str]] = [
     ("Другая причина", "other"),
 ]
 
+RENEWAL_ACTION_PREFIX = {
+    "disable": "renewal_off",
+    "unlink": "card_unlinked",
+    "close": "immediate_cancel",
+}
+
+RENEWAL_ACTION_LABEL = {
+    "disable": "Отключить автопродление",
+    "unlink": "Отвязать карту",
+    "close": "Закрыть доступ сейчас",
+}
+
 # ---------- УТИЛИТЫ ----------
 MSK = timezone(timedelta(hours=3))
 
@@ -150,6 +162,11 @@ def now_iso() -> str:
 def days_left(expires_at: int, at_ts: Optional[int] = None) -> int:
     ref = at_ts or now_ts()
     return max(0, (expires_at - ref) // 86400)
+
+def date_text(ts: Optional[int]) -> str:
+    if not ts:
+        return "не указана"
+    return datetime.fromtimestamp(ts, MSK).strftime("%d.%m.%Y")
 
 def add_days_ts(days: int) -> int:
     return int((datetime.now(timezone.utc) + timedelta(days=days)).timestamp())
@@ -518,6 +535,28 @@ class DB:
             "saved_payment_methods": await scalar(
                 "SELECT COUNT(*) FROM users WHERE payment_method_id IS NOT NULL AND payment_method_id!=''"
             ),
+            "auto_renewal_disabled_with_card": await scalar(
+                """
+                SELECT COUNT(*) FROM users
+                WHERE auto_renewal=0
+                  AND payment_method_id IS NOT NULL
+                  AND payment_method_id!=''
+                  AND expires_at > ?
+                """,
+                (now,)
+            ),
+            "auto_renewal_failures": await scalar(
+                "SELECT COUNT(*) FROM users WHERE COALESCE(auto_renewal_failures,0) > 0"
+            ),
+            "renewal_disabled_total": await scalar(
+                "SELECT COUNT(*) FROM cancellations WHERE reason LIKE 'renewal_off_%'"
+            ),
+            "cards_unlinked_total": await scalar(
+                "SELECT COUNT(*) FROM cancellations WHERE reason LIKE 'card_unlinked_%'"
+            ),
+            "immediate_cancel_total": await scalar(
+                "SELECT COUNT(*) FROM cancellations WHERE reason LIKE 'immediate_cancel_%'"
+            ),
         }
 
     async def cancellation_report(self, limit: int = 10) -> dict:
@@ -567,27 +606,58 @@ class DB:
     async def set_payment_method(self, uid: int, payment_method_id: str):
         assert self.conn is not None
         await self.conn.execute(
-            "UPDATE users SET payment_method_id=?, auto_renewal=1, auto_renewal_agreed_at=? WHERE user_id=?",
+            """
+            UPDATE users
+            SET payment_method_id=?,
+                auto_renewal=1,
+                auto_renewal_agreed_at=?,
+                auto_renewal_failures=0
+            WHERE user_id=?
+            """,
             (payment_method_id, now_ts(), uid))
         await self.conn.commit()
 
     async def set_auto_renewal(self, uid: int, enabled: bool):
         assert self.conn is not None
-        await self.conn.execute(
-            "UPDATE users SET auto_renewal=? WHERE user_id=?", (1 if enabled else 0, uid))
+        if enabled:
+            await self.conn.execute(
+                """
+                UPDATE users
+                SET auto_renewal=1,
+                    auto_renewal_agreed_at=?,
+                    auto_renewal_failures=0
+                WHERE user_id=?
+                """,
+                (now_ts(), uid))
+        else:
+            await self.conn.execute(
+                "UPDATE users SET auto_renewal=0 WHERE user_id=?", (uid,))
         await self.conn.commit()
 
     async def get_auto_renewal_info(self, uid: int) -> dict:
         assert self.conn is not None
         cur = await self.conn.execute(
-            "SELECT auto_renewal, payment_method_id, auto_renewal_failures FROM users WHERE user_id=?", (uid,))
+            """
+            SELECT auto_renewal, payment_method_id, auto_renewal_agreed_at,
+                   auto_renewal_failures, expires_at
+            FROM users WHERE user_id=?
+            """,
+            (uid,))
         row = await cur.fetchone()
         if not row:
-            return {"enabled": False, "has_payment_method": False, "failures": 0}
+            return {
+                "enabled": False,
+                "has_payment_method": False,
+                "agreed_at": None,
+                "failures": 0,
+                "expires_at": 0,
+            }
         return {
             "enabled": bool(row[0]),
             "has_payment_method": bool(row[1]),
-            "failures": row[2] or 0,
+            "agreed_at": row[2],
+            "failures": row[3] or 0,
+            "expires_at": row[4] or 0,
         }
 
     async def clear_payment_method(self, uid: int):
@@ -774,18 +844,53 @@ def cancel_or_keep_kb() -> InlineKeyboardMarkup:
         kb_row(InlineKeyboardButton(text="Я передумал, хочу остаться", callback_data="cancel_keep"))
     ])
 
+def subscription_manage_kb(info: dict) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    if info.get("enabled") and info.get("has_payment_method"):
+        rows.append([InlineKeyboardButton(text="Отключить автопродление", callback_data="renewal_start:disable")])
+    if info.get("has_payment_method"):
+        rows.append([InlineKeyboardButton(text="Отвязать карту", callback_data="renewal_start:unlink")])
+    rows.append([InlineKeyboardButton(text="Закрыть доступ сейчас", callback_data="renewal_start:close")])
+    rows.append([InlineKeyboardButton(text="Оставить всё как есть", callback_data="cancel_keep")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
 def cancel_reasons_kb() -> InlineKeyboardMarkup:
     rows = [[InlineKeyboardButton(text=title, callback_data=f"cancel_reason:{key}")]
             for (title, key) in CANCEL_REASONS]
     rows.append([InlineKeyboardButton(text="Назад", callback_data="cancel_warn")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
+def renewal_reasons_kb(action: str) -> InlineKeyboardMarkup:
+    rows = [[InlineKeyboardButton(text=title, callback_data=f"renewal_reason:{action}:{key}")]
+            for (title, key) in CANCEL_REASONS]
+    rows.append([InlineKeyboardButton(text="Назад", callback_data="cancel_warn")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
 def cancel_confirm_kb(reason_key: str) -> InlineKeyboardMarkup:
     return kb([
-        kb_row(InlineKeyboardButton(text="Всё равно отменить", callback_data=f"cancel_final:{reason_key}")),
+        kb_row(InlineKeyboardButton(text="Всё равно отменить", callback_data=f"renewal_final:close:{reason_key}")),
         kb_row(InlineKeyboardButton(text="Я передумал, хочу остаться", callback_data="cancel_keep")),
         kb_row(InlineKeyboardButton(text="Назад", callback_data="cancel_reason"))
     ])
+
+def renewal_confirm_kb(action: str, reason_key: str) -> InlineKeyboardMarkup:
+    label = RENEWAL_ACTION_LABEL.get(action, "Подтвердить")
+    return kb([
+        kb_row(InlineKeyboardButton(text=label, callback_data=f"renewal_final:{action}:{reason_key}")),
+        kb_row(InlineKeyboardButton(text="Оставить всё как есть", callback_data="cancel_keep")),
+        kb_row(InlineKeyboardButton(text="Назад", callback_data=f"renewal_start:{action}"))
+    ])
+
+def autorenewal_kb(info: dict) -> Optional[InlineKeyboardMarkup]:
+    rows: list[list[InlineKeyboardButton]] = []
+    if info.get("has_payment_method"):
+        if info.get("enabled"):
+            rows.append([InlineKeyboardButton(text="Отключить автопродление", callback_data="autorenew_off")])
+        else:
+            rows.append([InlineKeyboardButton(text="Включить автопродление", callback_data="autorenew_on")])
+        rows.append([InlineKeyboardButton(text="Отвязать карту", callback_data="autorenew_unlink")])
+        rows.append([InlineKeyboardButton(text="Оставить как есть", callback_data="autorenew_keep")])
+    return InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
 
 def pay_button_kb(pay_url: str, payment_id: str) -> InlineKeyboardMarkup:
     return kb([
@@ -844,7 +949,7 @@ async def agree_terms(cb: CallbackQuery):
     if active:
         link = await create_one_time_invite()
         if link:
-            buttons = kb([kb_row(InlineKeyboardButton(text="Отменить подписку", callback_data="cancel_warn"))])
+            buttons = kb([kb_row(InlineKeyboardButton(text="Управлять подпиской", callback_data="cancel_warn"))])
             await replace_with_text(
                 cb,
                 "Подписка активна.\n"
@@ -868,7 +973,7 @@ async def status(m: Message):
         left = days_left(row.expires_at)
         await m.answer(
             f"Подписка активна. Осталось ≈ {left} дн.",
-            reply_markup=kb([kb_row(InlineKeyboardButton(text="Отменить подписку", callback_data="cancel_warn"))])
+            reply_markup=kb([kb_row(InlineKeyboardButton(text="Управлять подпиской", callback_data="cancel_warn"))])
         )
     else:
         await m.answer("Подписка не активна. Нажми /start и оформи доступ.")
@@ -905,25 +1010,21 @@ async def cancel_subscription_cmd(m: Message):
     if not (row and is_active(row.expires_at)):
         await m.answer("Подписка не активна.")
         return
-    CANCEL_WARN_TEXT = (
-        "Ты уверена? При отмене ты потеряешь:\n\n"
-        "— Персонального ИИ-ассистента по питанию\n"
-        "— Трекер сна и тренировок\n"
-        "— Еженедельные обзоры и аналитику\n"
-        "— Доступ к нашему чату поддержки\n"
-        "— Свой текущий стрик\n\n"
-        "Отмена произойдёт сразу."
+    info = await db.get_auto_renewal_info(m.from_user.id)
+    status = "включено" if info["enabled"] and info["has_payment_method"] else "отключено"
+    await m.answer(
+        "Управление подпиской\n\n"
+        f"Доступ оплачен до: <b>{date_text(row.expires_at)}</b>\n"
+        f"Автопродление: <b>{status}</b>\n\n"
+        "Можно отключить будущие списания или отвязать карту. "
+        "Оплаченный доступ останется до конца периода.",
+        reply_markup=subscription_manage_kb(info)
     )
-    await m.answer(CANCEL_WARN_TEXT, reply_markup=cancel_or_keep_kb())
 
 CANCEL_WARN_TEXT = (
-    "Ты уверена? При отмене ты потеряешь:\n\n"
-    "— Персонального ИИ-ассистента по питанию\n"
-    "— Трекер сна и тренировок\n"
-    "— Еженедельные обзоры и аналитику\n"
-    "— Доступ к нашему чату поддержки\n"
-    "— Свой текущий стрик\n\n"
-    "Отмена произойдёт сразу."
+    "Управление подпиской\n\n"
+    "Можно отключить будущие списания или отвязать карту. "
+    "Оплаченный доступ останется до конца периода."
 )
 
 CANCEL_REASON_TEXTS = {
@@ -970,24 +1071,89 @@ async def cancel_warn(cb: CallbackQuery):
     if not (row and is_active(row.expires_at)):
         await cb.answer("Подписка не активна.", show_alert=True)
         return
-    await replace_with_text(cb, CANCEL_WARN_TEXT, cancel_or_keep_kb())
+    info = await db.get_auto_renewal_info(cb.from_user.id)
+    status = "включено" if info["enabled"] and info["has_payment_method"] else "отключено"
+    await replace_with_text(
+        cb,
+        f"{CANCEL_WARN_TEXT}\n\n"
+        f"Доступ оплачен до: <b>{date_text(row.expires_at)}</b>\n"
+        f"Автопродление: <b>{status}</b>",
+        subscription_manage_kb(info)
+    )
 
 @dp.callback_query(F.data == "cancel_reason")
 async def cancel_reason(cb: CallbackQuery):
     await cb.answer()
-    await replace_with_text(cb, "Жаль, что решили уйти. Подскажите, почему?", cancel_reasons_kb())
+    info = await db.get_auto_renewal_info(cb.from_user.id)
+    await replace_with_text(cb, "Что хотите сделать с подпиской?", subscription_manage_kb(info))
 
 @dp.callback_query(F.data.startswith("cancel_reason:"))
 async def cancel_reason_selected(cb: CallbackQuery):
     reason_key = cb.data.split(":", 1)[1]
     text = CANCEL_REASON_TEXTS.get(reason_key, CANCEL_REASON_TEXTS["other"])
-    await replace_with_text(cb, text, cancel_confirm_kb(reason_key))
+    await replace_with_text(cb, text, renewal_confirm_kb("close", reason_key))
     await cb.answer()
 
 @dp.callback_query(F.data == "cancel_keep")
 async def cancel_keep(cb: CallbackQuery):
     await cb.answer("Остаёмся 💛")
     await replace_with_text(cb, "Ура, ты с нами! 💛 Если будут вопросы — пиши @petukhovaas, всегда поможем.")
+
+@dp.callback_query(F.data.startswith("renewal_start:"))
+async def renewal_start(cb: CallbackQuery):
+    action = cb.data.split(":", 1)[1]
+    if action not in RENEWAL_ACTION_LABEL:
+        await cb.answer("Неизвестное действие", show_alert=True)
+        return
+
+    info = await db.get_auto_renewal_info(cb.from_user.id)
+    if action in {"disable", "unlink"} and not info["has_payment_method"]:
+        await cb.answer("Карта не привязана.", show_alert=True)
+        return
+    if action == "disable" and not info["enabled"]:
+        await cb.answer("Автопродление уже отключено.", show_alert=True)
+        return
+
+    texts = {
+        "disable": (
+            "Подскажите, почему хотите отключить автопродление?\n\n"
+            "Доступ останется активным до конца оплаченного периода."
+        ),
+        "unlink": (
+            "Подскажите, почему хотите отвязать карту?\n\n"
+            "Мы удалим сохранённый способ оплаты из нашей системы. "
+            "Будущих автоматических списаний не будет."
+        ),
+        "close": (
+            "Подскажите, почему хотите закрыть доступ сейчас?\n\n"
+            "Это действие завершит подписку сразу и уберёт доступ к закрытой группе."
+        ),
+    }
+    await cb.answer()
+    await replace_with_text(cb, texts[action], renewal_reasons_kb(action))
+
+@dp.callback_query(F.data.startswith("renewal_reason:"))
+async def renewal_reason_selected(cb: CallbackQuery):
+    _, action, reason_key = cb.data.split(":", 2)
+    if action not in RENEWAL_ACTION_LABEL:
+        await cb.answer("Неизвестное действие", show_alert=True)
+        return
+
+    if action == "close":
+        text = CANCEL_REASON_TEXTS.get(reason_key, CANCEL_REASON_TEXTS["other"])
+    elif action == "disable":
+        text = (
+            "Отключим будущие списания. Уже оплаченный доступ останется до конца периода.\n\n"
+            "Если захотите вернуться к автопродлению, включить его можно командой /autorenewal."
+        )
+    else:
+        text = (
+            "Отвяжем карту и удалим сохранённый платёжный токен из нашей системы.\n\n"
+            "Уже оплаченный доступ останется до конца периода. Следующее продление можно будет оплатить вручную."
+        )
+
+    await replace_with_text(cb, text, renewal_confirm_kb(action, reason_key))
+    await cb.answer()
 
 async def kick_from_group(uid: int) -> bool:
     """
@@ -1048,42 +1214,76 @@ async def ensure_user_removed(uid: int) -> bool:
         return True
 
 
+def _renewal_reason(action: str, reason_key: str) -> str:
+    prefix = RENEWAL_ACTION_PREFIX.get(action, action)
+    return f"{prefix}_{reason_key}"
+
+
+async def _finish_subscription_action(cb: CallbackQuery, action: str, reason_key: str):
+    uid = cb.from_user.id
+    reason = _renewal_reason(action, reason_key)
+    await db.save_cancellation(uid, reason)
+    log_cancellation(uid, reason)
+
+    if action == "disable":
+        await db.set_auto_renewal(uid, False)
+        await replace_with_text(
+            cb,
+            "Автопродление отключено ✅\n\n"
+            "Оплаченный доступ остаётся активным до конца периода. "
+            "Карта пока сохранена, её можно отвязать отдельно через /autorenewal."
+        )
+        await cb.answer("Автопродление отключено")
+        return
+
+    if action == "unlink":
+        await db.clear_payment_method(uid)
+        await replace_with_text(
+            cb,
+            "Карта отвязана ✅\n\n"
+            "Мы удалили сохранённый способ оплаты из нашей системы. "
+            "Автоматических списаний больше не будет. "
+            "Оплаченный доступ остаётся активным до конца периода."
+        )
+        await cb.answer("Карта отвязана")
+        return
+
+    if action == "close":
+        await db.set_user_expires(
+            uid,
+            now_ts() - 1,
+            cb.from_user.username,
+            cb.from_user.full_name
+        )
+        await db.clear_payment_method(uid)
+        kicked = await ensure_user_removed(uid)
+        if kicked:
+            await replace_with_text(cb, "Подписка отменена. Доступ закрыт.")
+        else:
+            await replace_with_text(
+                cb,
+                "Подписка отменена. Доступ закрыт.\n"
+                "Удалить из группы сейчас не удалось. Админу нужно проверить права бота."
+            )
+        await cb.answer("Отменено")
+        return
+
+    await cb.answer("Неизвестное действие", show_alert=True)
+
 
 @dp.callback_query(F.data.startswith("cancel_final:"))
 async def cancel_final(cb: CallbackQuery):
     reason_key = cb.data.split(":", 1)[1]
+    await _finish_subscription_action(cb, "close", reason_key)
 
-    # 1) Закрываем доступ в базе (сразу, без условий)
-    await db.set_user_expires(
-        cb.from_user.id,
-        now_ts() - 1,                    # гарантированно в прошлом
-        cb.from_user.username,
-        cb.from_user.full_name
-    )
-    await db.save_cancellation(cb.from_user.id, reason_key)
-    # Отключаем автопродление и удаляем сохранённый способ оплаты
-    await db.clear_payment_method(cb.from_user.id)
-    log_cancellation(cb.from_user.id, reason_key)
 
-    # 2) Пытаемся удалить из группы
-    kicked = await ensure_user_removed(cb.from_user.id)
-
-    # 3) Сообщаем результат
-    if kicked:
-        await replace_with_text(cb, "Подписка отменена. Доступ закрыт.")
-    else:
-        await replace_with_text(
-            cb,
-            "Подписка отменена. Доступ закрыт.\n"
-            "Удалить из группы сейчас не удалось. Проверьте у бота право "
-            "«Блокировка пользователей» и что он админ именно этого чата. "
-            "Если участник остался — удалите вручную."
-        )
-
-    try:
-        await cb.answer("Отменено")
-    except Exception:
-        pass
+@dp.callback_query(F.data.startswith("renewal_final:"))
+async def renewal_final(cb: CallbackQuery):
+    _, action, reason_key = cb.data.split(":", 2)
+    if action not in RENEWAL_ACTION_LABEL:
+        await cb.answer("Неизвестное действие", show_alert=True)
+        return
+    await _finish_subscription_action(cb, action, reason_key)
 
 # ---- Инвайт в группу ----
 async def create_one_time_invite() -> Optional[str]:
@@ -1165,13 +1365,15 @@ async def pay_start(cb: CallbackQuery):
             log.warning("Некорректный TAX_SYSTEM_CODE в .env: %r", TAX_SYSTEM_CODE)
 
     # Проверяем реферальную скидку
+    actual_price = MONTH_PRICE
     referral_discount = await db.get_unused_referral_reward(user.id)
     if referral_discount:
         discount_amount = MONTH_PRICE * referral_discount // 100
-        final_price = MONTH_PRICE - discount_amount
-        amount_rub = f"{final_price}.00"
+        actual_price = MONTH_PRICE - discount_amount
+        amount_rub = f"{actual_price}.00"
+        receipt["items"][0]["amount"]["value"] = amount_rub
         await db.use_referral_reward(user.id)
-        log.info("User %s using referral discount %d%% — price %d -> %d", user.id, referral_discount, MONTH_PRICE, final_price)
+        log.info("User %s using referral discount %d%% — price %d -> %d", user.id, referral_discount, MONTH_PRICE, actual_price)
 
     # создаём платёж в ЮKassa
     try:
@@ -1186,11 +1388,14 @@ async def pay_start(cb: CallbackQuery):
                     "return_url": return_url
                 },
                 "capture": True,
-                # "save_payment_method": True,  # TODO: включить после подключения рекуррентов в YooKassa
+                "save_payment_method": True,
                 "description": description,          # <- телефон теперь попадает в description
                 "metadata": {
                     "user_id": str(user.id),
-                    "phone": phone                    # <- дублируем телефон в metadata, чтобы потом можно было сверить
+                    "phone": phone,                   # <- дублируем телефон в metadata, чтобы потом можно было сверить
+                    "auto_renewal": "monthly",
+                    "auto_renewal_price": str(MONTH_PRICE),
+                    "payment_amount": str(actual_price),
                 },
                 "receipt": receipt                    # <- чек с телефоном
             })),
@@ -1231,6 +1436,9 @@ async def pay_start(cb: CallbackQuery):
         (
             "Откроется платёжная страница ЮKassa.\n"
             "После оплаты вернись сюда и нажми «Проверить».\n\n"
+            f"Подписка будет продлеваться автоматически: {MONTH_PRICE} ₽ каждые {PAID_DAYS} дней.\n"
+            "Отключить автопродление или отвязать карту можно в любой момент командой /autorenewal. "
+            "При отключении оплаченный доступ остаётся до конца периода.\n\n"
             f"Чек уйдёт на номер: {phone}\n"
             f"{discount_note}"
             ""
@@ -1239,7 +1447,7 @@ async def pay_start(cb: CallbackQuery):
     )
 
     # пишем платёж в БД (статус пока, скорее всего, 'pending')
-    await db.save_payment(user.id, payment.id, MONTH_PRICE, payment.status)
+    await db.save_payment(user.id, payment.id, actual_price, payment.status)
 
 # ---- Проверка платежа ----
 @dp.callback_query(F.data.startswith("pay_check:"))
@@ -1282,10 +1490,16 @@ async def pay_check(cb: CallbackQuery):
         await db.upsert_user_meta(cb.from_user, expires_at=new_expires)
 
         # Сохраняем способ оплаты для автопродления
+        auto_renewal_note = ""
         try:
             pm = payment.payment_method
             if pm and getattr(pm, "saved", False) and pm.id:
                 await db.set_payment_method(cb.from_user.id, pm.id)
+                auto_renewal_note = (
+                    "\n\nАвтопродление включено: "
+                    f"{MONTH_PRICE} ₽ каждые {PAID_DAYS} дней. "
+                    "Управление и отвязка карты: /autorenewal"
+                )
                 log.info("Payment method %s saved for user %s", pm.id, cb.from_user.id)
         except Exception as e:
             log.warning("Could not save payment method for user %s: %s", cb.from_user.id, e)
@@ -1325,6 +1539,7 @@ async def pay_check(cb: CallbackQuery):
                 f"<b>Вход в группу:</b> {link}\n"
                 f"Ссылка одноразовая, действует {INVITE_TTL_HOURS} часов.\n\n"
                 f"{phone_text}"
+                f"{auto_renewal_note}"
             )
             # второе сообщение — «уютный чат»
             await bot.send_message(
@@ -1357,6 +1572,7 @@ async def pay_check(cb: CallbackQuery):
                 cb,
                 "Оплата прошла ✅, но ссылку в группу создать не удалось. Проверь права бота и GROUP_ID.\n\n"
                 f"{phone_text}"
+                f"{auto_renewal_note}"
             )
     else:
         # Для pending показываем и кнопку оплаты, и кнопку проверки
@@ -1485,8 +1701,12 @@ async def reminder_notifier():
                     # Проверяем автопродление
                     ar_info = await db.get_auto_renewal_info(uid)
                     try:
-                        if False:  # TODO: включить после подключения рекуррентов в YooKassa
-                            txt = ""
+                        if ar_info["enabled"] and ar_info["has_payment_method"]:
+                            txt = (
+                                f"Подписка скоро продлится автоматически. "
+                                f"Сумма списания: {MONTH_PRICE} ₽. "
+                                "Управление автопродлением: /autorenewal"
+                            )
                         elif days > 1:
                             txt = f"Напоминание: до конца подписки осталось {left} дн."
                         else:
@@ -1560,9 +1780,9 @@ async def auto_renewal_job():
                     )
 
                     if payment.status == "succeeded":
-                        new_expires = add_days_ts(PAID_DAYS + GRACE_DAYS)
                         existing = await db.get_user(uid)
-                        final_expires = max(new_expires, existing.expires_at if existing else 0)
+                        base_expires = max(now_ts(), existing.expires_at if existing else 0)
+                        final_expires = base_expires + (PAID_DAYS + GRACE_DAYS) * 86400
                         await db.set_user_expires(uid, final_expires, u.get("username"), u.get("full_name"))
                         await db.reset_auto_renewal_failures(uid)
                         await db.save_payment(uid, payment.id, MONTH_PRICE, "succeeded")
@@ -1583,10 +1803,18 @@ async def auto_renewal_job():
                 except Exception as e:
                     log.warning("auto_renewal failed for user %s: %s", uid, e)
                     await db.increment_auto_renewal_failures(uid)
+                    await db.log_admin_event(
+                        "auto_renewal_failed",
+                        f"Не удалось выполнить автосписание: {e}",
+                        "warning",
+                        uid
+                    )
 
                     info = await db.get_auto_renewal_info(uid)
                     if info["failures"] >= 2:
                         await db.set_auto_renewal(uid, False)
+                        await db.save_cancellation(uid, "renewal_off_payment_failed")
+                        log_cancellation(uid, "renewal_off_payment_failed")
                         try:
                             await bot.send_message(
                                 uid,
@@ -1654,8 +1882,19 @@ async def admin_sync(m: Message):
 
 
 def _cancel_reason_title(reason: str) -> str:
-    labels = dict(CANCEL_REASONS)
+    labels = {key: title for title, key in CANCEL_REASONS}
     labels["admin_revoke"] = "Отмена админом"
+    labels["payment_failed"] = "Не прошла оплата"
+    prefix_labels = {
+        "renewal_off": "Отключил автопродление",
+        "card_unlinked": "Отвязал карту",
+        "immediate_cancel": "Закрыл доступ сразу",
+    }
+    for prefix, title in prefix_labels.items():
+        full_prefix = f"{prefix}_"
+        if reason and reason.startswith(full_prefix):
+            base = reason[len(full_prefix):]
+            return f"{title}: {labels.get(base, base)}"
     return labels.get(reason, reason or "Не указано")
 
 
@@ -1688,8 +1927,175 @@ async def admin_stats_cmd(m: Message):
         "<b>Отмены и продление</b>\n"
         f"— Отмен сегодня: <b>{s['cancellations_today']}</b>\n"
         f"— Автопродление включено: <b>{s['auto_renewal_enabled']}</b>\n"
-        f"— Сохранённые карты: <b>{s['saved_payment_methods']}</b>"
+        f"— Сохранённые карты: <b>{s['saved_payment_methods']}</b>\n"
+        f"— Карта есть, продление выключено: <b>{s['auto_renewal_disabled_with_card']}</b>\n"
+        f"— Ошибки автосписаний: <b>{s['auto_renewal_failures']}</b>\n"
+        f"— Отключили продление: <b>{s['renewal_disabled_total']}</b>\n"
+        f"— Отвязали карту: <b>{s['cards_unlinked_total']}</b>\n"
+        f"— Закрыли доступ сразу: <b>{s['immediate_cancel_total']}</b>"
     )
+
+
+@dp.message(Command("admin_recurring"))
+async def admin_recurring_cmd(m: Message):
+    if not _is_admin_id(m.from_user.id):
+        await m.answer("Команда доступна только админам.")
+        return
+
+    s = await db.admin_snapshot()
+    await m.answer(
+        "<b>Рекуррентные платежи</b>\n\n"
+        f"Название для банков: <code>YOURBODYPRO</code>\n"
+        f"Сумма: <b>{MONTH_PRICE} ₽</b> каждые {PAID_DAYS} дней\n\n"
+        "<b>Состояние</b>\n"
+        f"— Автопродление включено: <b>{s['auto_renewal_enabled']}</b>\n"
+        f"— Сохранённые карты: <b>{s['saved_payment_methods']}</b>\n"
+        f"— Карта есть, продление выключено: <b>{s['auto_renewal_disabled_with_card']}</b>\n"
+        f"— Ошибки автосписаний: <b>{s['auto_renewal_failures']}</b>\n\n"
+        "<b>Сценарий для скриншотов ЮKassa</b>\n"
+        "Клиент открывает /autorenewal, видит статус, может отключить автопродление "
+        "или отвязать карту самостоятельно.",
+        reply_markup=kb([
+            kb_row(InlineKeyboardButton(text="Показать экран управления", callback_data="admin_demo_autorenewal"))
+        ])
+    )
+
+
+@dp.callback_query(F.data == "admin_demo_autorenewal")
+async def admin_demo_autorenewal(cb: CallbackQuery):
+    if not _is_admin_id(cb.from_user.id):
+        await cb.answer("Только для админов", show_alert=True)
+        return
+    await cb.answer()
+    await replace_with_text(
+        cb,
+        "Управление подпиской\n\n"
+        "Автопродление включено ✅\n\n"
+        f"Следующее списание: {MONTH_PRICE} ₽ перед окончанием периода.\n"
+        "Доступ оплачен до: <b>30.07.2026</b>\n\n"
+        "Можно самостоятельно отключить будущие списания или отвязать карту. "
+        "При отвязке сохранённый способ оплаты удаляется из нашей системы.",
+        kb([
+            kb_row(InlineKeyboardButton(text="Отключить автопродление", callback_data="admin_demo_disable_reason")),
+            kb_row(InlineKeyboardButton(text="Отвязать карту", callback_data="admin_demo_unlink_reason")),
+            kb_row(InlineKeyboardButton(text="Оставить как есть", callback_data="admin_demo_noop")),
+        ])
+    )
+
+
+@dp.callback_query(F.data == "admin_demo_disable_reason")
+async def admin_demo_disable_reason(cb: CallbackQuery):
+    if not _is_admin_id(cb.from_user.id):
+        await cb.answer("Только для админов", show_alert=True)
+        return
+    await cb.answer()
+    await replace_with_text(
+        cb,
+        "Почему хотите отключить автопродление?\n\n"
+        "Доступ останется активным до конца оплаченного периода.",
+        kb([
+            kb_row(InlineKeyboardButton(text="Дорого", callback_data="admin_demo_disable_confirm")),
+            kb_row(InlineKeyboardButton(text="Нет времени", callback_data="admin_demo_disable_confirm")),
+            kb_row(InlineKeyboardButton(text="Тех. проблемы", callback_data="admin_demo_disable_confirm")),
+            kb_row(InlineKeyboardButton(text="Нашёл другой формат", callback_data="admin_demo_disable_confirm")),
+            kb_row(InlineKeyboardButton(text="Другая причина", callback_data="admin_demo_disable_confirm")),
+            kb_row(InlineKeyboardButton(text="Назад", callback_data="admin_demo_autorenewal")),
+        ])
+    )
+
+
+@dp.callback_query(F.data == "admin_demo_disable_confirm")
+async def admin_demo_disable_confirm(cb: CallbackQuery):
+    if not _is_admin_id(cb.from_user.id):
+        await cb.answer("Только для админов", show_alert=True)
+        return
+    await cb.answer()
+    await replace_with_text(
+        cb,
+        "Отключим будущие списания. Уже оплаченный доступ останется до конца периода.\n\n"
+        "Если захотите вернуться к автопродлению, включить его можно командой /autorenewal.",
+        kb([
+            kb_row(InlineKeyboardButton(text="Отключить автопродление", callback_data="admin_demo_disable_done")),
+            kb_row(InlineKeyboardButton(text="Оставить всё как есть", callback_data="admin_demo_noop")),
+            kb_row(InlineKeyboardButton(text="Назад", callback_data="admin_demo_disable_reason")),
+        ])
+    )
+
+
+@dp.callback_query(F.data == "admin_demo_disable_done")
+async def admin_demo_disable_done(cb: CallbackQuery):
+    if not _is_admin_id(cb.from_user.id):
+        await cb.answer("Только для админов", show_alert=True)
+        return
+    await cb.answer("Демо: данные не меняются")
+    await replace_with_text(
+        cb,
+        "Автопродление отключено ✅\n\n"
+        "Оплаченный доступ остаётся активным до конца периода. "
+        "Карта пока сохранена, её можно отвязать отдельно через /autorenewal."
+    )
+
+
+@dp.callback_query(F.data == "admin_demo_unlink_reason")
+async def admin_demo_unlink_reason(cb: CallbackQuery):
+    if not _is_admin_id(cb.from_user.id):
+        await cb.answer("Только для админов", show_alert=True)
+        return
+    await cb.answer()
+    await replace_with_text(
+        cb,
+        "Почему хотите отвязать карту?\n\n"
+        "После подтверждения мы удалим сохранённый способ оплаты из нашей системы.",
+        kb([
+            kb_row(InlineKeyboardButton(text="Дорого", callback_data="admin_demo_unlink_confirm")),
+            kb_row(InlineKeyboardButton(text="Нет времени", callback_data="admin_demo_unlink_confirm")),
+            kb_row(InlineKeyboardButton(text="Тех. проблемы", callback_data="admin_demo_unlink_confirm")),
+            kb_row(InlineKeyboardButton(text="Нашёл другой формат", callback_data="admin_demo_unlink_confirm")),
+            kb_row(InlineKeyboardButton(text="Другая причина", callback_data="admin_demo_unlink_confirm")),
+            kb_row(InlineKeyboardButton(text="Назад", callback_data="admin_demo_autorenewal")),
+        ])
+    )
+
+
+@dp.callback_query(F.data == "admin_demo_unlink_confirm")
+async def admin_demo_unlink_confirm(cb: CallbackQuery):
+    if not _is_admin_id(cb.from_user.id):
+        await cb.answer("Только для админов", show_alert=True)
+        return
+    await cb.answer()
+    await replace_with_text(
+        cb,
+        "Отвяжем карту и удалим сохранённый платёжный токен из нашей системы.\n\n"
+        "Уже оплаченный доступ останется до конца периода. Следующее продление можно будет оплатить вручную.",
+        kb([
+            kb_row(InlineKeyboardButton(text="Отвязать карту", callback_data="admin_demo_unlink_done")),
+            kb_row(InlineKeyboardButton(text="Оставить всё как есть", callback_data="admin_demo_noop")),
+            kb_row(InlineKeyboardButton(text="Назад", callback_data="admin_demo_unlink_reason")),
+        ])
+    )
+
+
+@dp.callback_query(F.data == "admin_demo_unlink_done")
+async def admin_demo_unlink_done(cb: CallbackQuery):
+    if not _is_admin_id(cb.from_user.id):
+        await cb.answer("Только для админов", show_alert=True)
+        return
+    await cb.answer("Демо: данные не меняются")
+    await replace_with_text(
+        cb,
+        "Карта отвязана ✅\n\n"
+        "Мы удалили сохранённый способ оплаты из нашей системы. "
+        "Автоматических списаний больше не будет. "
+        "Оплаченный доступ остаётся активным до конца периода."
+    )
+
+
+@dp.callback_query(F.data == "admin_demo_noop")
+async def admin_demo_noop(cb: CallbackQuery):
+    if _is_admin_id(cb.from_user.id):
+        await cb.answer("Демо: данные не меняются")
+    else:
+        await cb.answer()
 
 
 @dp.message(Command("admin_cancellations"))
@@ -1895,51 +2301,68 @@ async def autorenewal_cmd(m: Message):
 
     if info["enabled"] and info["has_payment_method"]:
         text = (
-            "🔄 <b>Автопродление включено</b>\n\n"
-            "Подписка будет продлеваться автоматически.\n"
-            "Стоимость списывается с сохранённого способа оплаты."
+            "Автопродление включено ✅\n\n"
+            f"Следующее списание: {MONTH_PRICE} ₽ перед окончанием периода.\n"
+            f"Доступ оплачен до: <b>{date_text(info.get('expires_at'))}</b>\n\n"
+            "Можно отключить будущие списания или отвязать карту. "
+            "Оплаченный доступ останется до конца периода."
         )
-        buttons = kb([
-            kb_row(InlineKeyboardButton(text="❌ Отключить автопродление", callback_data="autorenew_off")),
-            kb_row(InlineKeyboardButton(text="✅ Оставить как есть", callback_data="autorenew_keep"))
-        ])
     elif info["has_payment_method"]:
         text = (
-            "🔄 <b>Автопродление отключено</b>\n\n"
-            "Способ оплаты сохранён. Вы можете включить автопродление."
+            "Автопродление отключено\n\n"
+            f"Доступ оплачен до: <b>{date_text(info.get('expires_at'))}</b>\n"
+            "Карта сохранена. Можно снова включить автопродление или отвязать карту."
         )
-        buttons = kb([
-            kb_row(InlineKeyboardButton(text="🔄 Включить автопродление", callback_data="autorenew_on")),
-            kb_row(InlineKeyboardButton(text="Оставить выключенным", callback_data="autorenew_keep"))
-        ])
     else:
         text = (
-            "🔄 <b>Автопродление недоступно</b>\n\n"
-            "Способ оплаты будет сохранён при следующей оплате подписки, "
-            "и автопродление включится автоматически."
+            "Карта не привязана\n\n"
+            "После следующей оплаты ЮKassa сохранит способ оплаты для автопродления. "
+            "Здесь появятся кнопки отключения автопродления и отвязки карты."
         )
-        buttons = None
 
-    await m.answer(text, reply_markup=buttons)
+    await m.answer(text, reply_markup=autorenewal_kb(info))
 
 @dp.callback_query(F.data == "autorenew_on")
 async def autorenew_on(cb: CallbackQuery):
+    info = await db.get_auto_renewal_info(cb.from_user.id)
+    if not info["has_payment_method"]:
+        await cb.answer("Карта не привязана.", show_alert=True)
+        return
     await db.set_auto_renewal(cb.from_user.id, True)
     await cb.answer("Автопродление включено ✅")
-    await replace_with_text(cb, "🔄 Автопродление <b>включено</b>.\nПодписка будет продлеваться автоматически.")
+    await replace_with_text(
+        cb,
+        f"Автопродление включено ✅\n\n"
+        f"Сумма списания: {MONTH_PRICE} ₽ каждые {PAID_DAYS} дней. "
+        "Отключить или отвязать карту можно командой /autorenewal."
+    )
 
 @dp.callback_query(F.data == "autorenew_off")
 async def autorenew_off(cb: CallbackQuery):
-    await db.set_auto_renewal(cb.from_user.id, False)
-    await cb.answer("Автопродление отключено")
-    await replace_with_text(cb, "🔄 Автопродление <b>отключено</b>.\nПодписка будет действовать до конца оплаченного периода.")
+    await cb.answer()
+    await replace_with_text(
+        cb,
+        "Почему хотите отключить автопродление?\n\n"
+        "Доступ останется активным до конца оплаченного периода.",
+        renewal_reasons_kb("disable")
+    )
+
+@dp.callback_query(F.data == "autorenew_unlink")
+async def autorenew_unlink(cb: CallbackQuery):
+    await cb.answer()
+    await replace_with_text(
+        cb,
+        "Почему хотите отвязать карту?\n\n"
+        "После подтверждения мы удалим сохранённый способ оплаты из нашей системы.",
+        renewal_reasons_kb("unlink")
+    )
 
 @dp.callback_query(F.data == "autorenew_keep")
 async def autorenew_keep(cb: CallbackQuery):
     await cb.answer("Хорошо!")
     info = await db.get_auto_renewal_info(cb.from_user.id)
     status = "включено" if info["enabled"] else "отключено"
-    await replace_with_text(cb, f"🔄 Автопродление <b>{status}</b>. Настройки не изменены.")
+    await replace_with_text(cb, f"Автопродление <b>{status}</b>. Настройки не изменены.")
 
 
 # ---- Команда /referral ----
@@ -2023,13 +2446,14 @@ async def on_startup():
     commands = [
         BotCommand(command="start", description="Начать"),
         BotCommand(command="status", description="Статус подписки"),
-        BotCommand(command="cancel_subscription", description="Отменить подписку"),
+        BotCommand(command="autorenewal", description="Автопродление и карта"),
+        BotCommand(command="cancel_subscription", description="Управлять подпиской"),
         BotCommand(command="comp", description="(admin) Выдать подписку"),
         BotCommand(command="revoke", description="(admin) Отменить подписку пользователя"),
         BotCommand(command="admin_stats", description="(admin) Операционная сводка"),
         BotCommand(command="admin_cancellations", description="(admin) Отмены и причины"),
+        BotCommand(command="admin_recurring", description="(admin) Рекуррентные платежи"),
         BotCommand(command="myid", description="Показать мой ID"),
-        # BotCommand(command="autorenewal", description="Управление автопродлением"),  # TODO: включить после рекуррентов
         BotCommand(command="referral", description="Реферальная программа"),
     ]
 

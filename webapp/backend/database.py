@@ -730,17 +730,41 @@ class HabitDB:
         )
         await self.conn.commit()
 
+    async def get_pending_payments(self, user_id: int, limit: int = 5) -> List[Dict]:
+        cur = await self.conn.execute(
+            """
+            SELECT payment_id, amount, created_at
+            FROM payments
+            WHERE user_id = ? AND status IN ('pending', 'created')
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (user_id, limit)
+        )
+        return [
+            {"payment_id": row[0], "amount": row[1], "created_at": row[2]}
+            for row in await cur.fetchall()
+        ]
+
     # ============ Auto-Renewal ============
 
     async def set_payment_method(self, user_id: int, payment_method_id: str):
         await self.conn.execute(
-            "UPDATE users SET payment_method_id=? WHERE user_id=?",
-            (payment_method_id, user_id)
+            """
+            UPDATE users
+            SET payment_method_id=?,
+                auto_renewal=1,
+                auto_renewal_agreed_at=?,
+                auto_renewal_failures=0
+            WHERE user_id=?
+            """,
+            (payment_method_id, int(datetime.now(MSK).timestamp()), user_id)
         )
         await self.conn.commit()
 
     async def set_auto_renewal(self, user_id: int, enabled: bool, agreed_at: int = None):
-        if enabled and agreed_at:
+        if enabled:
+            agreed_at = agreed_at or int(datetime.now(MSK).timestamp())
             await self.conn.execute(
                 "UPDATE users SET auto_renewal=1, auto_renewal_agreed_at=?, auto_renewal_failures=0 WHERE user_id=?",
                 (agreed_at, user_id)
@@ -784,6 +808,13 @@ class HabitDB:
         await self.conn.execute(
             "UPDATE users SET payment_method_id=NULL, auto_renewal=0, auto_renewal_failures=0 WHERE user_id=?",
             (user_id,)
+        )
+        await self.conn.commit()
+
+    async def save_cancellation(self, user_id: int, reason: str):
+        await self.conn.execute(
+            "INSERT INTO cancellations(user_id, reason, created_at) VALUES (?, ?, ?)",
+            (user_id, reason, int(datetime.now(MSK).timestamp()))
         )
         await self.conn.commit()
 
@@ -1228,6 +1259,28 @@ class HabitDB:
                 ),
                 "saved_payment_methods": await scalar(
                     "SELECT COUNT(*) FROM users WHERE payment_method_id IS NOT NULL AND payment_method_id != ''"
+                ),
+                "auto_renewal_disabled_with_card": await scalar(
+                    """
+                    SELECT COUNT(*) FROM users
+                    WHERE auto_renewal = 0
+                      AND payment_method_id IS NOT NULL
+                      AND payment_method_id != ''
+                      AND expires_at > ?
+                    """,
+                    (now_ts,)
+                ),
+                "auto_renewal_failures": await scalar(
+                    "SELECT COUNT(*) FROM users WHERE COALESCE(auto_renewal_failures, 0) > 0"
+                ),
+                "renewal_disabled_total": await scalar(
+                    "SELECT COUNT(*) FROM cancellations WHERE reason LIKE 'renewal_off_%'"
+                ),
+                "cards_unlinked_total": await scalar(
+                    "SELECT COUNT(*) FROM cancellations WHERE reason LIKE 'card_unlinked_%'"
+                ),
+                "immediate_cancel_total": await scalar(
+                    "SELECT COUNT(*) FROM cancellations WHERE reason LIKE 'immediate_cancel_%'"
                 ),
             },
             "events": open_events,
