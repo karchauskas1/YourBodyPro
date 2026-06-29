@@ -78,9 +78,11 @@ function AuthenticatedApp() {
     setLoading(true);
     setAuthError(null);
     const isAdminPath = currentAppPath().startsWith('/admin');
+    let adminAuthAttempted = false;
 
     const tryAdminAuth = async () => {
-      if (!isAdminPath) return false;
+      if (!isAdminPath || adminAuthAttempted) return false;
+      adminAuthAttempted = true;
       try {
         const response = await api.adminMe();
         setAuthenticated(true);
@@ -105,6 +107,13 @@ function AuthenticatedApp() {
     console.log('initDataUnsafe:', window.Telegram?.WebApp?.initDataUnsafe);
 
     try {
+      if (isAdminPath) {
+        const adminAuthenticated = await tryAdminAuth();
+        if (adminAuthenticated) {
+          return;
+        }
+      }
+
       // Check subscription and get user data
       const response = await api.me();
 

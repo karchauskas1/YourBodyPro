@@ -12,6 +12,7 @@ import type {
 } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
+const API_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS || 12000);
 
 // Get Telegram initData for authentication
 function getInitData(): string {
@@ -28,6 +29,8 @@ async function apiFetch<T>(
   options: RequestInit = {}
 ): Promise<T> {
   const initData = getInitData();
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), API_TIMEOUT_MS);
 
   const headers: Record<string, string> = {};
 
@@ -48,10 +51,21 @@ async function apiFetch<T>(
     headers['Content-Type'] = 'application/json';
   }
 
-  const response = await fetch(`${API_BASE}${endpoint}`, {
-    ...options,
-    headers,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}${endpoint}`, {
+      ...options,
+      headers,
+      signal: options.signal || controller.signal,
+    });
+  } catch (error: any) {
+    if (error?.name === 'AbortError') {
+      throw new ApiError('Сервер не ответил. Закройте окно и откройте раздел заново через бота.', 504);
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 
   // Handle subscription required
   if (response.status === 403) {
