@@ -380,7 +380,7 @@ app = FastAPI(
 
 # CORS для Telegram WebApp
 ALLOWED_ORIGINS = [
-    "https://your-body-pro.vercel.app",
+    "https://api.pasekaproduction.ru",
     "http://localhost:3000",
     "http://localhost:5173",
 ]
@@ -1322,14 +1322,14 @@ async def get_streak(user: Dict = Depends(get_current_user)):
 
 
 ACHIEVEMENTS_CATALOG = [
-    {"id": "first_food", "name": "Первый шаг", "description": "Первый лог еды", "icon": "\ud83c\udf31"},
-    {"id": "streak_7", "name": "Неделя", "description": "7-дневный стрик еды", "icon": "\ud83d\udd25"},
-    {"id": "streak_30", "name": "Месяц", "description": "30-дневный стрик еды", "icon": "\ud83d\udcaa"},
-    {"id": "sleep_7", "name": "Мастер сна", "description": "7 дней сна подряд", "icon": "\ud83d\ude34"},
-    {"id": "workouts_10", "name": "Спортсмен", "description": "10 тренировок всего", "icon": "\ud83c\udfcb\ufe0f"},
-    {"id": "workouts_30", "name": "Марафонец", "description": "30 тренировок", "icon": "\ud83c\udfc5"},
-    {"id": "mindful_10", "name": "Осознанность", "description": "10 приёмов пищи без гаджетов", "icon": "\ud83e\uddd8"},
-    {"id": "weekly_first", "name": "Полная картина", "description": "Первый недельный обзор", "icon": "\ud83d\udcca"},
+    {"id": "first_food", "name": "Первый шаг", "description": "Первый лог еды", "icon": "1"},
+    {"id": "streak_7", "name": "Неделя", "description": "7-дневный стрик еды", "icon": "7"},
+    {"id": "streak_30", "name": "Месяц", "description": "30-дневный стрик еды", "icon": "30"},
+    {"id": "sleep_7", "name": "Мастер сна", "description": "7 дней сна подряд", "icon": "Z"},
+    {"id": "workouts_10", "name": "Спортсмен", "description": "10 тренировок всего", "icon": "10"},
+    {"id": "workouts_30", "name": "Марафонец", "description": "30 тренировок", "icon": "30"},
+    {"id": "mindful_10", "name": "Осознанность", "description": "10 приёмов пищи без гаджетов", "icon": "M"},
+    {"id": "weekly_first", "name": "Полная картина", "description": "Первый недельный обзор", "icon": "W"},
 ]
 
 @app.get("/api/achievements")
