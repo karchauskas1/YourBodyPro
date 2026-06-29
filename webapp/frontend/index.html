@@ -5,6 +5,63 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>YourBody PRO</title>
+    <script>
+      (function () {
+        function safeString(value) {
+          if (value == null) return '';
+          return String(value).slice(0, 4000);
+        }
+
+        function reportClientError(payload) {
+          try {
+            var body = JSON.stringify({
+              name: safeString(payload.name),
+              message: safeString(payload.message),
+              stack: safeString(payload.stack),
+              source: safeString(payload.source),
+              line: payload.line || null,
+              column: payload.column || null,
+              path: window.location.pathname + window.location.search,
+              userAgent: navigator.userAgent
+            });
+
+            if (navigator.sendBeacon) {
+              navigator.sendBeacon('/_webapp_error', new Blob([body], { type: 'application/json' }));
+              return;
+            }
+
+            fetch('/_webapp_error', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: body,
+              keepalive: true
+            }).catch(function () {});
+          } catch (error) {
+            console.warn('Failed to report client error', error);
+          }
+        }
+
+        window.addEventListener('error', function (event) {
+          reportClientError({
+            name: event.error && event.error.name,
+            message: event.message || (event.error && event.error.message),
+            stack: event.error && event.error.stack,
+            source: event.filename,
+            line: event.lineno,
+            column: event.colno
+          });
+        });
+
+        window.addEventListener('unhandledrejection', function (event) {
+          var reason = event.reason || {};
+          reportClientError({
+            name: reason.name || 'UnhandledRejection',
+            message: reason.message || reason,
+            stack: reason.stack
+          });
+        });
+      })();
+    </script>
     <!-- Telegram WebApp SDK - REQUIRED for authentication -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script>

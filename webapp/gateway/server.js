@@ -35,6 +35,66 @@ function sendError(res, statusCode, message) {
   res.end(message);
 }
 
+function requestInfo(req) {
+  const parsedUrl = new URL(req.url || '/', 'https://app.pasekaproduction.ru');
+  return {
+    type: 'access',
+    method: req.method,
+    path: parsedUrl.pathname,
+    queryKeys: Array.from(parsedUrl.searchParams.keys()),
+    ip: req.socket.remoteAddress,
+    userAgent: req.headers['user-agent'],
+  };
+}
+
+function logAccess(req, res, startedAt) {
+  const entry = {
+    ...requestInfo(req),
+    status: res.statusCode,
+    ms: Date.now() - startedAt,
+  };
+  console.log(JSON.stringify(entry));
+}
+
+function receiveBody(req, maxBytes = 65536) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.setEncoding('utf8');
+    req.on('data', (chunk) => {
+      body += chunk;
+      if (body.length > maxBytes) {
+        reject(new Error('body too large'));
+        req.destroy();
+      }
+    });
+    req.on('end', () => resolve(body));
+    req.on('error', reject);
+  });
+}
+
+async function receiveClientError(req, res) {
+  try {
+    const body = await receiveBody(req);
+    const payload = JSON.parse(body || '{}');
+    console.error(JSON.stringify({
+      type: 'client_error',
+      name: String(payload.name || '').slice(0, 120),
+      message: String(payload.message || '').slice(0, 1000),
+      stack: String(payload.stack || '').slice(0, 4000),
+      source: String(payload.source || '').slice(0, 500),
+      line: payload.line || null,
+      column: payload.column || null,
+      path: String(payload.path || '').slice(0, 500),
+      userAgent: String(payload.userAgent || '').slice(0, 500),
+    }));
+    res.writeHead(204, { 'cache-control': 'no-store' });
+    res.end();
+  } catch (error) {
+    console.error('client error report failed:', error);
+    sendError(res, 400, 'Bad request');
+  }
+}
+
 function shouldGzip(req, filePath) {
   const acceptEncoding = req.headers['accept-encoding'] || '';
   const ext = path.extname(filePath).toLowerCase();
@@ -136,8 +196,16 @@ const server = https.createServer(
     cert: fs.readFileSync(certPath),
   },
   (req, res) => {
+    const startedAt = Date.now();
+    res.on('finish', () => logAccess(req, res, startedAt));
+
     if (!req.url) {
       sendError(res, 400, 'Bad request');
+      return;
+    }
+
+    if (req.url.startsWith('/_webapp_error')) {
+      receiveClientError(req, res);
       return;
     }
 
