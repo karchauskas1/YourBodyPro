@@ -6,7 +6,35 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>YourBody PRO</title>
     <!-- Telegram WebApp SDK - REQUIRED for authentication -->
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script async src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script>
+      (function () {
+        var attempts = 0;
+        var maxAttempts = 80;
+
+        function markTelegramReady() {
+          var webApp = window.Telegram && window.Telegram.WebApp;
+          if (!webApp) return false;
+
+          try {
+            webApp.ready();
+            webApp.expand();
+          } catch (error) {
+            console.warn('Telegram WebApp early init failed', error);
+          }
+          return true;
+        }
+
+        if (markTelegramReady()) return;
+
+        var timer = window.setInterval(function () {
+          attempts += 1;
+          if (markTelegramReady() || attempts >= maxAttempts) {
+            window.clearInterval(timer);
+          }
+        }, 100);
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

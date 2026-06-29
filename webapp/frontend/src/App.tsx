@@ -51,6 +51,33 @@ function currentAppPath(): string {
   return path;
 }
 
+function markTelegramReady(): boolean {
+  const tg = window.Telegram?.WebApp;
+  if (!tg) return false;
+
+  try {
+    tg.ready();
+    tg.expand();
+  } catch (error) {
+    console.warn('Telegram WebApp ready failed:', error);
+  }
+  return true;
+}
+
+function waitForTelegramWebApp(timeoutMs = 8000): Promise<void> {
+  if (markTelegramReady()) return Promise.resolve();
+
+  return new Promise(resolve => {
+    const startedAt = Date.now();
+    const timerId = window.setInterval(() => {
+      if (markTelegramReady() || Date.now() - startedAt >= timeoutMs) {
+        window.clearInterval(timerId);
+        resolve();
+      }
+    }, 100);
+  });
+}
+
 // Auth wrapper component
 function AuthenticatedApp() {
   const {
@@ -66,6 +93,7 @@ function AuthenticatedApp() {
   } = useStore();
   const { isAvailable } = useTelegram();
   const [authError, setAuthError] = useState<string | null>(null);
+  const [loadingTooLong, setLoadingTooLong] = useState(false);
 
   // Initialize theme
   useTheme();
@@ -74,11 +102,29 @@ function AuthenticatedApp() {
     initializeApp();
   }, []);
 
+  useEffect(() => {
+    if (!isLoading) {
+      setLoadingTooLong(false);
+      return;
+    }
+
+    const timerId = window.setTimeout(() => {
+      setLoadingTooLong(true);
+    }, 10000);
+
+    return () => window.clearTimeout(timerId);
+  }, [isLoading]);
+
   const initializeApp = async () => {
     setLoading(true);
     setAuthError(null);
+    setLoadingTooLong(false);
     const isAdminPath = currentAppPath().startsWith('/admin');
     let adminAuthAttempted = false;
+    const loadingWatchdogId = window.setTimeout(() => {
+      setAuthError('Загрузка заняла слишком много времени. Закройте окно и откройте приложение заново через бота.');
+      setLoading(false);
+    }, 20000);
 
     const tryAdminAuth = async () => {
       if (!isAdminPath || adminAuthAttempted) return false;
@@ -107,6 +153,8 @@ function AuthenticatedApp() {
     console.log('initDataUnsafe:', window.Telegram?.WebApp?.initDataUnsafe);
 
     try {
+      await waitForTelegramWebApp();
+
       if (isAdminPath) {
         const adminAuthenticated = await tryAdminAuth();
         if (adminAuthenticated) {
@@ -157,6 +205,7 @@ function AuthenticatedApp() {
         }
       }
     } finally {
+      window.clearTimeout(loadingWatchdogId);
       setLoading(false);
     }
   };
@@ -168,8 +217,16 @@ function AuthenticatedApp() {
         <div className="text-center">
           <LoadingSpinner size="lg" />
           <p className="mt-4 text-sm" style={{ color: 'var(--text-secondary)' }}>
-            Загрузка...
+            {loadingTooLong ? 'Загрузка заняла больше обычного.' : 'Загрузка...'}
           </p>
+          {loadingTooLong && (
+            <button
+              onClick={initializeApp}
+              className="btn-primary mt-4"
+            >
+              Повторить
+            </button>
+          )}
         </div>
       </div>
     );
@@ -177,7 +234,6 @@ function AuthenticatedApp() {
 
   // Auth error
   if (authError) {
-    const tg = window.Telegram?.WebApp;
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <div className="text-center">
@@ -193,13 +249,6 @@ function AuthenticatedApp() {
           <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
             {authError}
           </p>
-          {/* Debug info */}
-          <div className="text-xs text-left mb-4 p-2 rounded" style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>
-            <p>TG available: {tg ? 'Yes' : 'No'}</p>
-            <p>initData: {tg?.initData ? `${tg.initData.substring(0, 30)}...` : 'EMPTY'}</p>
-            <p>User: {tg?.initDataUnsafe?.user ? JSON.stringify(tg.initDataUnsafe.user) : 'null'}</p>
-            <p>Platform: {(tg as any)?.platform || 'unknown'}</p>
-          </div>
           <button
             onClick={initializeApp}
             className="btn-primary"

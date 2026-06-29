@@ -29,6 +29,11 @@ from dotenv import load_dotenv
 from yookassa import Configuration, Payment
 from yookassa.domain.exceptions import ApiError
 
+try:
+    from aiogram.types import MenuButtonWebApp
+except ImportError:
+    MenuButtonWebApp = None
+
 # ---------- ЛОГИ ----------
 logging.basicConfig(
     level=logging.INFO,
@@ -77,7 +82,7 @@ PROMO_PRICE_TEXT = _env("PROMO_PRICE_TEXT")
 SHOP_ID = _env("SHOP_ID")
 SHOP_SECRET_KEY = _env("SHOP_SECRET_KEY")
 WEBAPP_URL = _env("WEBAPP_URL") or "https://api.pasekaproduction.ru/yourbody-app"
-WEBAPP_CACHE_BUSTER = _env("WEBAPP_CACHE_BUSTER") or "20260629-admin-console"
+WEBAPP_CACHE_BUSTER = _env("WEBAPP_CACHE_BUSTER") or "20260630-selfhost-entry"
 
 VAT_CODE = _env_int("VAT_CODE", 1)  # 1=без НДС; 2=0%; 3=10%; 4=20%; 5=10/110; 6=20/120
 TAX_SYSTEM_CODE = _env("TAX_SYSTEM_CODE")  # например "1" (ОСН)
@@ -982,6 +987,21 @@ async def status(m: Message):
         )
     else:
         await m.answer("Подписка не активна. Нажми /start и оформи доступ.")
+
+@dp.message(Command("app"))
+async def app_cmd(m: Message):
+    url = WEBAPP_URL.rstrip("/")
+    if not url.startswith("https://"):
+        await m.answer("Приложение не настроено: WEBAPP_URL должен быть HTTPS-адресом.")
+        return
+
+    await m.answer(
+        "Открыть приложение YourBody PRO:",
+        reply_markup=kb([kb_row(InlineKeyboardButton(
+            text="Открыть приложение",
+            web_app=WebAppInfo(url=url),
+        ))])
+    )
 
 @dp.message(Command("phone"))
 async def set_phone_cmd(m: Message):
@@ -2474,6 +2494,7 @@ async def on_startup():
     # Обновляем список команд бота
     commands = [
         BotCommand(command="start", description="Начать"),
+        BotCommand(command="app", description="Открыть приложение"),
         BotCommand(command="status", description="Статус подписки"),
         BotCommand(command="autorenewal", description="Автопродление и карта"),
         BotCommand(command="cancel_subscription", description="Управлять подпиской"),
@@ -2496,6 +2517,18 @@ async def on_startup():
         await bot.set_my_commands(commands)
     except Exception as e:
         log.warning("set_my_commands failed: %s", e)
+
+    if MenuButtonWebApp is not None and WEBAPP_URL.startswith("https://"):
+        try:
+            await bot.set_chat_menu_button(
+                menu_button=MenuButtonWebApp(
+                    text="YourBody PRO",
+                    web_app=WebAppInfo(url=WEBAPP_URL.rstrip("/")),
+                )
+            )
+            log.info("Telegram WebApp menu updated: %s", WEBAPP_URL.rstrip("/"))
+        except Exception as e:
+            log.warning("set_chat_menu_button failed: %s", e)
 
 def main():
     # Регистрируем обработчики habit tracker
