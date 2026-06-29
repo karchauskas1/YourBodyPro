@@ -13,6 +13,7 @@ import os
 import re
 from datetime import datetime, timezone, timedelta
 from typing import Optional
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from aiogram import Dispatcher, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -30,6 +31,22 @@ MSK = timezone(timedelta(hours=3))
 
 # URL веб-приложения (настраивается в .env)
 WEBAPP_URL = os.getenv("WEBAPP_URL", "https://app.pasekaproduction.ru")
+WEBAPP_CACHE_BUSTER = os.getenv("WEBAPP_CACHE_BUSTER", "20260630-app-domain")
+
+
+def webapp_url(path: str = "") -> str:
+    base_url = WEBAPP_URL.rstrip("/")
+    if not base_url:
+        return ""
+    clean_path = path if path.startswith("/") or not path else f"/{path}"
+    url = f"{base_url}{clean_path}"
+    if not WEBAPP_CACHE_BUSTER:
+        return url
+
+    parts = urlsplit(url)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    query["v"] = WEBAPP_CACHE_BUSTER
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
 
 # Database instance
 habit_db: Optional[HabitDB] = None
@@ -66,7 +83,7 @@ def register_habit_handlers(dp: Dispatcher):
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(
                 text="✨ Открыть ассистент привычек",
-                web_app={"url": WEBAPP_URL}
+                web_app={"url": webapp_url()}
             )]
         ])
 
@@ -271,8 +288,6 @@ async def notification_scheduler(bot):
         return
 
     log.info("Notification scheduler started")
-    WEBAPP_URL_LOCAL = os.getenv("WEBAPP_URL", "https://app.pasekaproduction.ru")
-
     while True:
         try:
             # Получаем текущее UTC время
@@ -343,7 +358,7 @@ async def notification_scheduler(bot):
                         keyboard = InlineKeyboardMarkup(inline_keyboard=[
                             [InlineKeyboardButton(
                                 text="📊 Посмотреть итог",
-                                web_app={"url": f"{WEBAPP_URL_LOCAL}/summary"}
+                                web_app={"url": webapp_url("/summary")}
                             )]
                         ])
                         try:
@@ -376,7 +391,7 @@ async def notification_scheduler(bot):
                     keyboard = InlineKeyboardMarkup(inline_keyboard=[
                         [InlineKeyboardButton(
                             text="📈 Посмотреть обзор",
-                            web_app={"url": f"{WEBAPP_URL_LOCAL}/weekly"}
+                            web_app={"url": webapp_url("/weekly")}
                         )]
                     ])
                     try:

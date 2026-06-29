@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from functools import partial
 from typing import Optional, Iterable
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import aiosqlite
 from aiogram import Bot, Dispatcher, F
@@ -166,8 +167,22 @@ def now_ts() -> int:
 def now_iso() -> str:
     return datetime.now(MSK).strftime("%Y-%m-%d %H:%M:%S%z")
 
+def webapp_url(path: str = "") -> str:
+    base_url = WEBAPP_URL.rstrip("/")
+    if not base_url:
+        return ""
+    clean_path = path if path.startswith("/") or not path else f"/{path}"
+    url = f"{base_url}{clean_path}"
+    if not WEBAPP_CACHE_BUSTER:
+        return url
+
+    parts = urlsplit(url)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    query["v"] = WEBAPP_CACHE_BUSTER
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+
 def admin_console_url() -> str:
-    return f"{WEBAPP_URL.rstrip('/')}/admin/console?v={WEBAPP_CACHE_BUSTER}"
+    return webapp_url("/admin/console")
 
 def days_left(expires_at: int, at_ts: Optional[int] = None) -> int:
     ref = at_ts or now_ts()
@@ -990,7 +1005,7 @@ async def status(m: Message):
 
 @dp.message(Command("app"))
 async def app_cmd(m: Message):
-    url = WEBAPP_URL.rstrip("/")
+    url = webapp_url()
     if not url.startswith("https://"):
         await m.answer("Приложение не настроено: WEBAPP_URL должен быть HTTPS-адресом.")
         return
@@ -2520,13 +2535,14 @@ async def on_startup():
 
     if MenuButtonWebApp is not None and WEBAPP_URL.startswith("https://"):
         try:
+            url = webapp_url()
             await bot.set_chat_menu_button(
                 menu_button=MenuButtonWebApp(
                     text="YourBody PRO",
-                    web_app=WebAppInfo(url=WEBAPP_URL.rstrip("/")),
+                    web_app=WebAppInfo(url=url),
                 )
             )
-            log.info("Telegram WebApp menu updated: %s", WEBAPP_URL.rstrip("/"))
+            log.info("Telegram WebApp menu updated: %s", url)
         except Exception as e:
             log.warning("set_chat_menu_button failed: %s", e)
 

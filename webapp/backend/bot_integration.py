@@ -7,6 +7,7 @@ import os
 import base64
 from datetime import datetime, timezone, timedelta
 from typing import Optional
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
 
@@ -22,6 +23,22 @@ MSK = timezone(timedelta(hours=3))
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 WEBAPP_URL = os.getenv("WEBAPP_URL", "")  # URL где хостится веб-приложение
+WEBAPP_CACHE_BUSTER = os.getenv("WEBAPP_CACHE_BUSTER", "20260630-app-domain")
+
+
+def webapp_url(path: str = "") -> str:
+    base_url = WEBAPP_URL.rstrip("/")
+    if not base_url:
+        return ""
+    clean_path = path if path.startswith("/") or not path else f"/{path}"
+    url = f"{base_url}{clean_path}"
+    if not WEBAPP_CACHE_BUSTER:
+        return url
+
+    parts = urlsplit(url)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    query["v"] = WEBAPP_CACHE_BUSTER
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
 
 
 class BotIntegration:
@@ -189,7 +206,7 @@ class BotIntegration:
         keyboard = {
             "inline_keyboard": [
                 [
-                    {"text": "📊 Посмотреть итог", "web_app": {"url": f"{WEBAPP_URL}/summary"}}
+                    {"text": "📊 Посмотреть итог", "web_app": {"url": webapp_url("/summary")}}
                 ]
             ]
         }
@@ -205,7 +222,7 @@ class BotIntegration:
         keyboard = {
             "inline_keyboard": [
                 [
-                    {"text": "📈 Посмотреть обзор", "web_app": {"url": f"{WEBAPP_URL}/weekly"}}
+                    {"text": "📈 Посмотреть обзор", "web_app": {"url": webapp_url("/weekly")}}
                 ]
             ]
         }
@@ -221,7 +238,7 @@ class BotIntegration:
         keyboard = {
             "inline_keyboard": [
                 [
-                    {"text": "✨ Открыть ассистент привычек", "web_app": {"url": WEBAPP_URL}}
+                    {"text": "✨ Открыть ассистент привычек", "web_app": {"url": webapp_url()}}
                 ]
             ]
         }
