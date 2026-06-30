@@ -6,7 +6,7 @@ Wants=yourbody-api.service
 [Service]
 Type=simple
 WorkingDirectory=/opt/yourbody-pro
-Environment=WEBAPP_GATEWAY_PORT=8443
+Environment=WEBAPP_GATEWAY_PORT=9443
 Environment=WEBAPP_STATIC_DIR=/opt/yourbody-pro/webapp/frontend/dist
 Environment=WEBAPP_API_TARGET=http://127.0.0.1:8000
 Environment=WEBAPP_TLS_CERT=/etc/letsencrypt/live/app.pasekaproduction.ru/fullchain.pem

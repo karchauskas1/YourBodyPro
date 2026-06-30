@@ -5,7 +5,7 @@ const path = require('path');
 const { pipeline } = require('stream');
 const zlib = require('zlib');
 
-const port = Number(process.env.WEBAPP_GATEWAY_PORT || 8443);
+const port = Number(process.env.WEBAPP_GATEWAY_PORT || 9443);
 const staticDir = process.env.WEBAPP_STATIC_DIR || path.resolve(__dirname, '../frontend/dist');
 const apiTarget = process.env.WEBAPP_API_TARGET || 'http://127.0.0.1:8000';
 const certPath = process.env.WEBAPP_TLS_CERT || '/etc/letsencrypt/live/app.pasekaproduction.ru/fullchain.pem';
