@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -175,10 +175,12 @@ export function AdminConsole() {
   const [eventState, setEventState] = useState('open');
   const [query, setQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [listsLoading, setListsLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const initialLoadDone = useRef(false);
 
   const loadSummary = () => api.getAdminConsoleSummary().then(setSummary);
 
@@ -195,12 +197,28 @@ export function AdminConsole() {
   const loadAll = async () => {
     setError(null);
     setIsLoading(true);
+    setListsLoading(true);
+    const failed: string[] = [];
+
     try {
-      await Promise.all([loadSummary(), loadUsers(), loadPayments(), loadEvents()]);
+      await loadSummary();
     } catch (err: any) {
-      setError(err.message || 'Не удалось загрузить админку');
+      failed.push(err.message || 'сводку');
     } finally {
       setIsLoading(false);
+    }
+
+    const results = await Promise.allSettled([loadUsers(), loadPayments(), loadEvents()]);
+    results.forEach((result) => {
+      if (result.status === 'rejected') {
+        failed.push(result.reason?.message || 'часть данных');
+      }
+    });
+
+    initialLoadDone.current = true;
+    setListsLoading(false);
+    if (failed.length > 0) {
+      setError(`Часть данных не загрузилась: ${failed.join(', ')}`);
     }
   };
 
@@ -209,15 +227,27 @@ export function AdminConsole() {
   }, []);
 
   useEffect(() => {
-    loadUsers().catch((err) => setError(err.message || 'Не удалось загрузить клиентов'));
+    if (!initialLoadDone.current) return;
+    setListsLoading(true);
+    loadUsers()
+      .catch((err) => setError(err.message || 'Не удалось загрузить клиентов'))
+      .finally(() => setListsLoading(false));
   }, [userStatus]);
 
   useEffect(() => {
-    loadPayments().catch((err) => setError(err.message || 'Не удалось загрузить платежи'));
+    if (!initialLoadDone.current) return;
+    setListsLoading(true);
+    loadPayments()
+      .catch((err) => setError(err.message || 'Не удалось загрузить платежи'))
+      .finally(() => setListsLoading(false));
   }, [paymentStatus]);
 
   useEffect(() => {
-    loadEvents().catch((err) => setError(err.message || 'Не удалось загрузить события'));
+    if (!initialLoadDone.current) return;
+    setListsLoading(true);
+    loadEvents()
+      .catch((err) => setError(err.message || 'Не удалось загрузить события'))
+      .finally(() => setListsLoading(false));
   }, [eventState]);
 
   useEffect(() => {
@@ -332,6 +362,11 @@ export function AdminConsole() {
         {notice && (
           <div className="mb-4 p-3 rounded-xl text-sm" style={{ background: 'var(--success-soft)', color: 'var(--success)' }}>
             {notice}
+          </div>
+        )}
+        {listsLoading && (
+          <div className="mb-4 p-3 rounded-xl text-sm" style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>
+            Данные обновляются...
           </div>
         )}
 

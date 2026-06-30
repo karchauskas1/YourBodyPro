@@ -31,6 +31,7 @@ function sendError(res, statusCode, message) {
   res.writeHead(statusCode, {
     'content-type': 'text/plain; charset=utf-8',
     'cache-control': 'no-store',
+    connection: 'close',
   });
   res.end(message);
 }
@@ -87,7 +88,7 @@ async function receiveClientError(req, res) {
       path: String(payload.path || '').slice(0, 500),
       userAgent: String(payload.userAgent || '').slice(0, 500),
     }));
-    res.writeHead(204, { 'cache-control': 'no-store' });
+    res.writeHead(204, { 'cache-control': 'no-store', connection: 'close' });
     res.end();
   } catch (error) {
     console.error('client error report failed:', error);
@@ -131,6 +132,7 @@ function serveStatic(req, res) {
   const headers = {
     'content-type': mimeTypes[ext] || 'application/octet-stream',
     'cache-control': isIndex ? 'no-store, no-cache, must-revalidate' : 'public, max-age=604800, immutable',
+    connection: 'close',
   };
 
   const stream = fs.createReadStream(filePath);
@@ -169,7 +171,10 @@ function proxyApi(req, res) {
       headers,
     },
     (proxyRes) => {
-      res.writeHead(proxyRes.statusCode || 502, proxyRes.headers);
+      res.writeHead(proxyRes.statusCode || 502, {
+        ...proxyRes.headers,
+        connection: 'close',
+      });
       pipeline(proxyRes, res, (error) => {
         if (error) console.error('api response pipeline failed:', error);
       });
@@ -197,6 +202,7 @@ const server = https.createServer(
   },
   (req, res) => {
     const startedAt = Date.now();
+    res.shouldKeepAlive = false;
     res.on('finish', () => logAccess(req, res, startedAt));
 
     if (!req.url) {
@@ -217,6 +223,13 @@ const server = https.createServer(
     serveStatic(req, res);
   }
 );
+
+server.keepAliveTimeout = 1000;
+server.headersTimeout = 5000;
+server.requestTimeout = 15000;
+server.setTimeout(15000, (socket) => {
+  socket.destroy();
+});
 
 server.listen(port, '0.0.0.0', () => {
   console.log(`YourBody WebApp gateway listening on ${port}`);
