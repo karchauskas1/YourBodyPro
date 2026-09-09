@@ -25,6 +25,8 @@ jobs:
           cache-dependency-path: webapp/frontend/package-lock.json
       - run: npm ci
         working-directory: webapp/frontend
+      - run: npm run lint -- --max-warnings=0
+        working-directory: webapp/frontend
       - run: node --test webapp/gateway/server.test.cjs
       - run: npx playwright install --with-deps chromium
         working-directory: webapp/frontend

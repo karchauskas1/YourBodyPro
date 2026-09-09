@@ -1,6 +1,6 @@
 // Main App component with routing
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useStore } from './store/useStore';
@@ -91,18 +91,13 @@ function AuthenticatedApp() {
     setLoading,
     isLoading,
   } = useStore();
-  const { isAvailable } = useTelegram();
+  useTelegram();
   const [authError, setAuthError] = useState<string | null>(null);
   const [loadingTooLong, setLoadingTooLong] = useState(false);
   const authAttempt = useRef(0);
 
   // Initialize theme
   useTheme();
-
-  useEffect(() => {
-    initializeApp();
-    return () => { authAttempt.current += 1; };
-  }, []);
 
   useEffect(() => {
     if (!isLoading) {
@@ -117,7 +112,7 @@ function AuthenticatedApp() {
     return () => window.clearTimeout(timerId);
   }, [isLoading]);
 
-  const initializeApp = async () => {
+  const initializeApp = useCallback(async () => {
     const attempt = ++authAttempt.current;
     const isCurrentAttempt = () => attempt === authAttempt.current;
     setLoading(true);
@@ -198,7 +193,7 @@ function AuthenticatedApp() {
           return;
         }
 
-        if (import.meta.env.DEV && !window.Telegram?.WebApp?.initData && !isAvailable) {
+        if (import.meta.env.DEV && !window.Telegram?.WebApp) {
           // In development, allow access without Telegram
           setAuthenticated(true);
           setSubscriptionActive(true);
@@ -212,7 +207,12 @@ function AuthenticatedApp() {
       window.clearTimeout(loadingWatchdogId);
       if (isCurrentAttempt()) setLoading(false);
     }
-  };
+  }, [setAuthenticated, setLoading, setProfile, setSubscriptionActive, setUser]);
+
+  useEffect(() => {
+    initializeApp();
+    return () => { authAttempt.current += 1; };
+  }, [initializeApp]);
 
   // Loading state
   if (isLoading) {

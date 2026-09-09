@@ -13,7 +13,7 @@ export function FoodEntryDetail() {
   const navigate = useNavigate();
   const { haptic, showConfirm } = useTelegram();
   const [entry, setEntry] = useState<FoodEntry | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const isLoading = entry?.id !== Number(id);
   const [isEditing, setIsEditing] = useState(false);
   const [editedDescription, setEditedDescription] = useState('');
   const [hungerBefore, setHungerBefore] = useState<number | undefined>(undefined);
@@ -22,33 +22,33 @@ export function FoodEntryDetail() {
   const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
-    loadEntry();
-  }, [id]);
+    let cancelled = false;
+    if (!id) {
+      navigate('/');
+      return;
+    }
 
-  const loadEntry = async () => {
-    if (!id) return;
-
-    try {
-      setIsLoading(true);
-      const response = await api.getFoodEntry(Number(id));
+    api.getFoodEntry(Number(id)).then(response => {
+      if (cancelled) return;
       const foundEntry = response.entry;
-
       if (foundEntry) {
         setEntry(foundEntry);
         setEditedDescription(foundEntry.description);
         setHungerBefore(foundEntry.hunger_before);
         setFullnessAfter(foundEntry.fullness_after);
+        setIsEditing(false);
       } else {
         navigate('/');
       }
-    } catch (err) {
+    }).catch(err => {
+      if (cancelled) return;
       console.error('Failed to load entry:', err);
       haptic('error');
       navigate('/');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    });
+
+    return () => { cancelled = true; };
+  }, [id, navigate, haptic]);
 
   const handleSave = async () => {
     if (!entry || !editedDescription.trim()) return;

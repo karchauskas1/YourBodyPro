@@ -1,9 +1,10 @@
 // Admin Operations - ежедневный контроль оплат, доступов и отмен
 
-import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { Layout, Card, LoadingSpinner, EmptyState, Button } from '../components/Layout';
-import { api, type AdminOperations as AdminOperationsData } from '../api/client';
+import { api, ApiError } from '../api/client';
+import { freshQueryOptions } from '../api/queryOptions';
 import { AlertTriangle, ArrowLeft, Ban, Clock, CreditCard, KeyRound, RefreshCw, UserCog } from 'lucide-react';
 
 function StatCard({ label, value, tone = 'default' }: { label: string; value: string | number; tone?: 'default' | 'warning' | 'danger' | 'success' }) {
@@ -64,22 +65,13 @@ function reasonLabel(reason: string): string {
 
 export function AdminOperations() {
   const navigate = useNavigate();
-  const [data, setData] = useState<AdminOperationsData | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const loadData = () => {
-    setIsLoading(true);
-    setError(null);
-    api.getAdminOperations()
-      .then(setData)
-      .catch((err) => setError(err.message || 'Access denied'))
-      .finally(() => setIsLoading(false));
-  };
-
-  useEffect(() => {
-    loadData();
-  }, []);
+  const { data, error, isFetching: isLoading, refetch } = useQuery({
+    ...freshQueryOptions,
+    queryKey: ['admin', 'operations'],
+    queryFn: ({ signal }) => api.getAdminOperations(signal),
+  });
+  const loadData = () => { void refetch(); };
+  const accessDenied = error instanceof ApiError && [401, 403].includes(error.status);
 
   if (isLoading) {
     return (
@@ -95,9 +87,9 @@ export function AdminOperations() {
     return (
       <Layout>
         <EmptyState
-          title="Нет доступа"
-          description={error || 'Не удалось загрузить данные'}
-          action={<Button onClick={() => navigate('/')} variant="secondary">На главную</Button>}
+          title={accessDenied ? 'Нет доступа' : 'Ошибка загрузки'}
+          description={error?.message || 'Не удалось загрузить данные'}
+          action={<Button onClick={accessDenied ? () => navigate('/') : loadData} variant="secondary">{accessDenied ? 'На главную' : 'Попробовать снова'}</Button>}
         />
       </Layout>
     );

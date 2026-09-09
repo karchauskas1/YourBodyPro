@@ -4,7 +4,7 @@ import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Layout, Card, Button } from '../components/Layout';
 import { useTelegram } from '../hooks/useTelegram';
-import { api } from '../api/client';
+import { api, ApiError } from '../api/client';
 import { useStore } from '../store/useStore';
 import { Camera, Type, X, Check, ArrowLeft, ImageIcon, Clock } from 'lucide-react';
 
@@ -172,24 +172,19 @@ export function AddFood() {
 
       haptic('success');
       navigate('/');
-    } catch (err: any) {
-      console.error('❌ Failed to add food:', {
-        error: err,
-        message: err?.message,
-        detail: err?.detail,
-        status: err?.status
-      });
+    } catch (err) {
+      console.error('Failed to add food:', err);
+      const status = err instanceof ApiError ? err.status : undefined;
+      const message = err instanceof Error ? err.message : '';
 
       // Более детальное сообщение об ошибке
       let errorMessage = 'Не удалось сохранить';
-      if (err?.status === 413 || err?.message?.includes('too large')) {
+      if (status === 413 || message.includes('too large')) {
         errorMessage = 'Фото слишком большое. Максимум 10MB';
-      } else if (err?.status === 500) {
+      } else if (status === 500) {
         errorMessage = 'Ошибка сервера. Попробуйте позже';
-      } else if (err?.message) {
-        errorMessage = err.message;
-      } else if (err?.detail) {
-        errorMessage = err.detail;
+      } else if (message) {
+        errorMessage = message;
       }
 
       setError(errorMessage);

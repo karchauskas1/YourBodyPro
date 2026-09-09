@@ -1,6 +1,6 @@
 // Dashboard - main screen
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import { ru } from 'date-fns/locale';
@@ -109,39 +109,38 @@ export function Dashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadDashboard();
-  }, []);
-
-  const loadDashboard = async () => {
+  const loadAttempt = useRef(0);
+  const loadDashboard = useCallback(async () => {
+    const attempt = ++loadAttempt.current;
+    const isCurrent = () => attempt === loadAttempt.current;
     try {
       setIsLoading(true);
       setError(null);
       const dashboardData = await api.getDashboard();
+      if (!isCurrent()) return;
       setData(dashboardData);
       setDashboard(dashboardData);
 
-      // Load today's workouts and achievements
-      const today = new Date().toISOString().split('T')[0];
-      try {
-        const workoutsData = await api.getWorkoutsByDate(today);
-        setWorkouts(workoutsData.workouts || []);
-      } catch {
-        setWorkouts([]);
-      }
-      try {
-        const achievementsData = await api.getAchievements();
-        setAchievements(achievementsData.achievements || []);
-      } catch {
-        setAchievements([]);
-      }
+      // Use the server's tracker date, including around midnight in the user's timezone.
+      const [workoutsResult, achievementsResult] = await Promise.allSettled([
+        api.getWorkoutsByDate(dashboardData.date), api.getAchievements(),
+      ]);
+      if (!isCurrent()) return;
+      setWorkouts(workoutsResult.status === 'fulfilled' ? workoutsResult.value.workouts : []);
+      setAchievements(achievementsResult.status === 'fulfilled' ? achievementsResult.value.achievements : []);
     } catch (err) {
+      if (!isCurrent()) return;
       console.error('Failed to load dashboard:', err);
       setError('Не удалось загрузить данные');
     } finally {
-      setIsLoading(false);
+      if (isCurrent()) setIsLoading(false);
     }
-  };
+  }, [setDashboard]);
+
+  useEffect(() => {
+    void loadDashboard();
+    return () => { loadAttempt.current += 1; };
+  }, [loadDashboard]);
 
   const handleFoodEntryClick = (entry: FoodEntry) => {
     haptic('light');

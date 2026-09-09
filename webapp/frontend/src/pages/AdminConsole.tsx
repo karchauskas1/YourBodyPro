@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -19,15 +20,8 @@ import {
   WalletCards,
   XCircle,
 } from 'lucide-react';
-import {
-  api,
-  type AdminConsoleSummary,
-  type AdminEventItem,
-  type AdminPaymentItem,
-  type AdminUserDetail,
-  type AdminUserListItem,
-  type Paginated,
-} from '../api/client';
+import { api } from '../api/client';
+import { freshQueryOptions } from '../api/queryOptions';
 import { Button, LoadingSpinner } from '../components/Layout';
 
 type Tab = 'users' | 'payments' | 'events';
@@ -164,139 +158,88 @@ function Segmented({
 export function AdminConsole() {
   const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>('users');
-  const [summary, setSummary] = useState<AdminConsoleSummary | null>(null);
-  const [users, setUsers] = useState<Paginated<AdminUserListItem> | null>(null);
-  const [payments, setPayments] = useState<Paginated<AdminPaymentItem> | null>(null);
-  const [events, setEvents] = useState<Paginated<AdminEventItem> | null>(null);
-  const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
-  const [selectedUser, setSelectedUser] = useState<AdminUserDetail | null>(null);
+  const queryClient = useQueryClient();
+  const [chosenUserId, setSelectedUserId] = useState<number | null>(null);
   const [userStatus, setUserStatus] = useState('all');
   const [paymentStatus, setPaymentStatus] = useState('all');
   const [eventState, setEventState] = useState('open');
   const [query, setQuery] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
-  const [listsLoading, setListsLoading] = useState(false);
-  const [detailLoading, setDetailLoading] = useState(false);
+  const [appliedQuery, setAppliedQuery] = useState('');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const actionInFlight = useRef(false);
   const [notice, setNotice] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const initialLoadDone = useRef(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  const loadSummary = () => api.getAdminConsoleSummary().then(setSummary);
-
-  const loadUsers = () => api.getAdminUsers({ status: userStatus, q: query, limit: 50 }).then((data) => {
-    setUsers(data);
-    if (!selectedUserId && data.items.length > 0) {
-      setSelectedUserId(data.items[0].user_id);
-    }
+  // Every response belongs to its exact filter/user. A late response cannot
+  // overwrite the current selection, including while the first load is pending.
+  const summaryQuery = useQuery({
+    ...freshQueryOptions, queryKey: ['admin', 'summary'],
+    queryFn: ({ signal }) => api.getAdminConsoleSummary(signal),
   });
+  const usersQuery = useQuery({
+    ...freshQueryOptions, queryKey: ['admin', 'users', userStatus, appliedQuery],
+    queryFn: ({ signal }) => api.getAdminUsers({ status: userStatus, q: appliedQuery, limit: 50 }, signal),
+  });
+  const paymentsQuery = useQuery({
+    ...freshQueryOptions, queryKey: ['admin', 'payments', paymentStatus, appliedQuery],
+    queryFn: ({ signal }) => api.getAdminPayments({ status: paymentStatus, q: appliedQuery, limit: 50 }, signal),
+  });
+  const eventsQuery = useQuery({
+    ...freshQueryOptions, queryKey: ['admin', 'events', eventState],
+    queryFn: ({ signal }) => api.getAdminEvents({ state: eventState, limit: 50 }, signal),
+  });
+  const summary = summaryQuery.data;
+  const users = usersQuery.isError ? undefined : usersQuery.data;
+  const payments = paymentsQuery.isError ? undefined : paymentsQuery.data;
+  const events = eventsQuery.isError ? undefined : eventsQuery.data;
+  const selectedUserId = chosenUserId ?? users?.items[0]?.user_id ?? null;
+  const detailQuery = useQuery({
+    ...freshQueryOptions, queryKey: ['admin', 'user', selectedUserId],
+    queryFn: ({ signal }) => api.getAdminUserDetail(selectedUserId!, signal),
+    enabled: selectedUserId !== null,
+  });
+  const selectedUser = detailQuery.isError ? undefined : detailQuery.data;
+  const activeUser = selectedUser?.user.user_id === selectedUserId ? selectedUser.user : undefined;
+  const isLoading = summaryQuery.isPending;
+  const listsLoading = usersQuery.isFetching || paymentsQuery.isFetching || eventsQuery.isFetching;
+  const detailLoading = selectedUserId !== null && detailQuery.isFetching;
+  const loadErrors = [summaryQuery, usersQuery, paymentsQuery, eventsQuery, detailQuery]
+    .flatMap(result => result.error ? [result.error.message] : []);
+  const error = actionError || (loadErrors.length ? `Часть данных не загрузилась: ${loadErrors.join(', ')}` : null);
 
-  const loadPayments = () => api.getAdminPayments({ status: paymentStatus, q: query, limit: 50 }).then(setPayments);
-  const loadEvents = () => api.getAdminEvents({ state: eventState, limit: 50 }).then(setEvents);
+  const loadAll = () => queryClient.invalidateQueries({ queryKey: ['admin'] });
 
-  const loadAll = async () => {
-    setError(null);
-    setIsLoading(true);
-    setListsLoading(true);
-    const failed: string[] = [];
-
-    try {
-      await loadSummary();
-    } catch (err: any) {
-      failed.push(err.message || 'сводку');
-    } finally {
-      setIsLoading(false);
+  const runSearch = () => {
+    setActionError(null);
+    const nextQuery = query.trim();
+    if (nextQuery === appliedQuery) {
+      void usersQuery.refetch();
+      void paymentsQuery.refetch();
+    } else {
+      setSelectedUserId(null);
+      setAppliedQuery(nextQuery);
     }
-
-    const results = await Promise.allSettled([loadUsers(), loadPayments(), loadEvents()]);
-    results.forEach((result) => {
-      if (result.status === 'rejected') {
-        failed.push(result.reason?.message || 'часть данных');
-      }
-    });
-
-    initialLoadDone.current = true;
-    setListsLoading(false);
-    if (failed.length > 0) {
-      setError(`Часть данных не загрузилась: ${failed.join(', ')}`);
-    }
-  };
-
-  useEffect(() => {
-    loadAll();
-  }, []);
-
-  useEffect(() => {
-    if (!initialLoadDone.current) return;
-    setListsLoading(true);
-    loadUsers()
-      .catch((err) => setError(err.message || 'Не удалось загрузить клиентов'))
-      .finally(() => setListsLoading(false));
-  }, [userStatus]);
-
-  useEffect(() => {
-    if (!initialLoadDone.current) return;
-    setListsLoading(true);
-    loadPayments()
-      .catch((err) => setError(err.message || 'Не удалось загрузить платежи'))
-      .finally(() => setListsLoading(false));
-  }, [paymentStatus]);
-
-  useEffect(() => {
-    if (!initialLoadDone.current) return;
-    setListsLoading(true);
-    loadEvents()
-      .catch((err) => setError(err.message || 'Не удалось загрузить события'))
-      .finally(() => setListsLoading(false));
-  }, [eventState]);
-
-  useEffect(() => {
-    if (!selectedUserId) {
-      setSelectedUser(null);
-      return;
-    }
-    setDetailLoading(true);
-    api.getAdminUserDetail(selectedUserId)
-      .then(setSelectedUser)
-      .catch((err) => setError(err.message || 'Не удалось загрузить клиента'))
-      .finally(() => setDetailLoading(false));
-  }, [selectedUserId]);
-
-  const runSearch = async () => {
-    setError(null);
-    try {
-      await Promise.all([loadUsers(), loadPayments()]);
-    } catch (err: any) {
-      setError(err.message || 'Не удалось выполнить поиск');
-    }
-  };
-
-  const refreshSelected = async () => {
-    await Promise.all([
-      loadSummary(),
-      loadUsers(),
-      loadPayments(),
-      loadEvents(),
-      selectedUserId ? api.getAdminUserDetail(selectedUserId).then(setSelectedUser) : Promise.resolve(),
-    ]);
   };
 
   const runAction = async (key: string, action: () => Promise<unknown>, success: string) => {
+    if (actionInFlight.current) return;
+    actionInFlight.current = true;
     setActionLoading(key);
     setNotice(null);
-    setError(null);
+    setActionError(null);
     try {
       await action();
       setNotice(success);
-      await refreshSelected();
-    } catch (err: any) {
-      setError(err.message || 'Действие не выполнено');
+      // Mark every cached admin view stale, then refresh the currently selected
+      // views. Changing clients while an action runs cannot restore the old card.
+      await loadAll();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Действие не выполнено');
     } finally {
+      actionInFlight.current = false;
       setActionLoading(null);
     }
   };
-
-  const activeUser = selectedUser?.user;
 
   const tabCounts = useMemo(() => ({
     users: summary?.total_users ?? 0,
@@ -346,6 +289,8 @@ export function AdminConsole() {
             </button>
             <button
               onClick={loadAll}
+              aria-label="Обновить данные"
+              disabled={listsLoading || summaryQuery.isFetching}
               className="p-2 rounded-xl"
               style={{ background: 'var(--bg-secondary)' }}
             >
@@ -437,7 +382,7 @@ export function AdminConsole() {
             {tab === 'users' && (
               <Panel>
                 <div className="mb-4">
-                  <Segmented items={userFilters} value={userStatus} onChange={setUserStatus} />
+                  <Segmented items={userFilters} value={userStatus} onChange={(status) => { setSelectedUserId(null); setUserStatus(status); }} />
                 </div>
                 <div className="space-y-2">
                   {users?.items.map((item) => (
@@ -537,11 +482,12 @@ export function AdminConsole() {
                             {event.event_type}
                           </div>
                           <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                            {event.user_id ? userTitle(event as any) : 'Без клиента'} · {formatDate(event.created_at)}
+                            {event.user_id ? userTitle({ ...event, user_id: event.user_id }) : 'Без клиента'} · {formatDate(event.created_at)}
                           </div>
                         </div>
                         {!event.resolved && (
                           <button
+                            disabled={actionLoading !== null}
                             onClick={() => runAction(`event-${event.id}`, () => api.resolveAdminEvent(event.id), 'Тревога закрыта')}
                             className="px-3 py-2 rounded-xl text-xs"
                             style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)' }}
@@ -618,6 +564,7 @@ export function AdminConsole() {
                     <Button
                       onClick={() => runAction('extend', () => api.extendAdminUserSubscription(activeUser.user_id, 30), 'Подписка продлена на 30 дней')}
                       loading={actionLoading === 'extend'}
+                      disabled={actionLoading !== null}
                     >
                       <CalendarPlus className="w-5 h-5 mr-2" />
                       Продлить на 30 дней
@@ -626,6 +573,7 @@ export function AdminConsole() {
                       variant="secondary"
                       onClick={() => runAction('invite', () => api.sendAdminInvite(activeUser.user_id), 'Ссылка создана и отправлена, если пользователь принимает сообщения')}
                       loading={actionLoading === 'invite'}
+                      disabled={actionLoading !== null}
                     >
                       <Send className="w-5 h-5 mr-2" />
                       Отправить ссылку в группу
@@ -638,7 +586,7 @@ export function AdminConsole() {
                         activeUser.auto_renewal ? 'Автопродление отключено' : 'Автопродление включено'
                       )}
                       loading={actionLoading === 'renewal'}
-                      disabled={!activeUser.has_payment_method && !activeUser.auto_renewal}
+                      disabled={actionLoading !== null || (!activeUser.has_payment_method && !activeUser.auto_renewal)}
                     >
                       <RefreshCw className="w-5 h-5 mr-2" />
                       {activeUser.auto_renewal ? 'Отключить автопродление' : 'Включить автопродление'}
@@ -651,7 +599,7 @@ export function AdminConsole() {
                         }
                       }}
                       loading={actionLoading === 'unlink'}
-                      disabled={!activeUser.has_payment_method}
+                      disabled={actionLoading !== null || !activeUser.has_payment_method}
                     >
                       <XCircle className="w-5 h-5 mr-2" />
                       Отвязать карту
@@ -664,6 +612,7 @@ export function AdminConsole() {
                         }
                       }}
                       loading={actionLoading === 'revoke'}
+                      disabled={actionLoading !== null}
                     >
                       <Ban className="w-5 h-5 mr-2" />
                       Закрыть доступ

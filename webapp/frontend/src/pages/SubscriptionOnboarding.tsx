@@ -177,9 +177,9 @@ export function SubscriptionOnboarding() {
           <h2 className="text-2xl font-bold mb-1 text-center" style={{ color: 'var(--text-primary)' }}>
             {slide.title}
           </h2>
-          {'subtitle' in slide && (slide as any).subtitle && (
+          {slide.subtitle && (
             <p className="text-sm mb-4 text-center" style={{ color: 'var(--text-secondary)' }}>
-              {(slide as any).subtitle}
+              {slide.subtitle}
             </p>
           )}
           {!('subtitle' in slide) && <div className="mb-5" />}

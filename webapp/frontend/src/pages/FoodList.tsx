@@ -1,10 +1,11 @@
 // Food List page - shows all food entries for today
 
-import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { Layout, PageHeader, Card, LoadingSpinner, EmptyState } from '../components/Layout';
+import { Layout, PageHeader, Card, Button, LoadingSpinner, EmptyState } from '../components/Layout';
 import { useTelegram } from '../hooks/useTelegram';
 import { api } from '../api/client';
+import { freshQueryOptions } from '../api/queryOptions';
 import type { FoodEntry } from '../types';
 import { Utensils, Plus, ArrowLeft } from 'lucide-react';
 
@@ -55,25 +56,12 @@ function FoodItem({ entry, onClick }: { entry: FoodEntry; onClick: () => void })
 export function FoodList() {
   const navigate = useNavigate();
   const { haptic } = useTelegram();
-  const [entries, setEntries] = useState<FoodEntry[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    loadEntries();
-  }, []);
-
-  const loadEntries = async () => {
-    try {
-      setIsLoading(true);
-      const response = await api.getTodayFood();
-      setEntries(response.entries);
-    } catch (err) {
-      console.error('Failed to load food entries:', err);
-      haptic('error');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const { data, error, isFetching: isLoading, refetch } = useQuery({
+    ...freshQueryOptions,
+    queryKey: ['food', 'today'],
+    queryFn: ({ signal }) => api.getTodayFood(signal),
+  });
+  const entries = data?.entries ?? [];
 
   const handleEntryClick = (entry: FoodEntry) => {
     haptic('light');
@@ -124,7 +112,13 @@ export function FoodList() {
       />
 
       <div className="space-y-4">
-        {entries.length > 0 ? (
+        {error ? (
+          <EmptyState
+            title="Не удалось загрузить записи"
+            description="Попробуйте ещё раз. Сохранённые записи не пропали."
+            action={<Button onClick={() => { void refetch(); }} variant="secondary">Попробовать снова</Button>}
+          />
+        ) : entries.length > 0 ? (
           <>
             <Card>
               <div className="space-y-2">

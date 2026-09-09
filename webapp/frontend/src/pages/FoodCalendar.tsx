@@ -1,76 +1,55 @@
 // Food Calendar page - view food history by day
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, isToday } from 'date-fns';
 import { ru } from 'date-fns/locale';
-import { Layout, Card, LoadingSpinner } from '../components/Layout';
+import { Layout, Card, Button, EmptyState, LoadingSpinner } from '../components/Layout';
 import { api } from '../api/client';
-import type { FoodEntry, DailySummary as DailySummaryType } from '../types';
+import { freshQueryOptions } from '../api/queryOptions';
 import { useTelegram } from '../hooks/useTelegram';
 import { ArrowLeft, ChevronLeft, ChevronRight, X, Utensils, Sparkles, Lightbulb } from 'lucide-react';
-
-interface DayData {
-  count: number;
-  entries: FoodEntry[];
-}
 
 export function FoodCalendar() {
   const navigate = useNavigate();
   const { haptic } = useTelegram();
 
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [calendarData, setCalendarData] = useState<Record<string, DayData>>({});
-  const [isLoading, setIsLoading] = useState(true);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
-  const [daySummary, setDaySummary] = useState<DailySummaryType | null>(null);
-  const [summaryLoading, setSummaryLoading] = useState(false);
-
-  useEffect(() => {
-    loadCalendarData();
-  }, [currentDate]);
-
-  const loadCalendarData = async () => {
-    try {
-      setIsLoading(true);
-      const year = currentDate.getFullYear();
-      const month = currentDate.getMonth() + 1;
-
-      const response = await api.getFoodCalendar(year, month);
-      setCalendarData(response.days);
-    } catch (err) {
-      console.error('Failed to load calendar:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const year = currentDate.getFullYear();
+  const month = currentDate.getMonth() + 1;
+  const calendar = useQuery({
+    ...freshQueryOptions,
+    queryKey: ['food', 'calendar', year, month],
+    queryFn: ({ signal }) => api.getFoodCalendar(year, month, signal),
+  });
+  const calendarData = calendar.data?.days ?? {};
+  const isLoading = calendar.isFetching;
+  const summary = useQuery({
+    ...freshQueryOptions,
+    queryKey: ['food', 'day-summary', selectedDay],
+    queryFn: ({ signal }) => api.getSummaryByDate(selectedDay!, signal),
+    enabled: selectedDay !== null,
+  });
+  const daySummary = summary.data?.summary;
+  const summaryLoading = summary.isFetching;
 
   const handlePrevMonth = () => {
     haptic('light');
+    setSelectedDay(null);
     setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
   };
 
   const handleNextMonth = () => {
     haptic('light');
+    setSelectedDay(null);
     setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
   };
 
-  const handleDayClick = async (dateStr: string) => {
+  const handleDayClick = (dateStr: string) => {
     haptic('selection');
-    if (calendarData[dateStr]) {
-      setSelectedDay(dateStr);
-      setDaySummary(null);
-      setSummaryLoading(true);
-
-      try {
-        const response = await api.getSummaryByDate(dateStr);
-        setDaySummary(response.summary);
-      } catch (err) {
-        console.error('Failed to load day summary:', err);
-      } finally {
-        setSummaryLoading(false);
-      }
-    }
+    if (calendarData[dateStr]) setSelectedDay(dateStr);
   };
 
   // Generate calendar days
@@ -116,6 +95,7 @@ export function FoodCalendar() {
         <div className="flex items-center justify-between">
           <button
             onClick={handlePrevMonth}
+            aria-label="Предыдущий месяц"
             className="p-2 rounded-xl transition-colors"
             style={{ background: 'var(--bg-secondary)' }}
           >
@@ -126,6 +106,7 @@ export function FoodCalendar() {
           </h2>
           <button
             onClick={handleNextMonth}
+            aria-label="Следующий месяц"
             className="p-2 rounded-xl transition-colors"
             style={{ background: 'var(--bg-secondary)' }}
           >
@@ -140,6 +121,11 @@ export function FoodCalendar() {
           <div className="flex justify-center py-8">
             <LoadingSpinner />
           </div>
+        ) : calendar.error ? (
+          <EmptyState
+            title="Не удалось загрузить календарь"
+            action={<Button onClick={() => { void calendar.refetch(); }} variant="secondary">Попробовать снова</Button>}
+          />
         ) : (
           <>
             {/* Week day headers */}
@@ -237,6 +223,7 @@ export function FoodCalendar() {
               </h3>
               <button
                 onClick={() => setSelectedDay(null)}
+                aria-label="Закрыть день"
                 className="p-2 rounded-xl"
                 style={{ background: 'var(--bg-glass)' }}
               >
@@ -279,6 +266,11 @@ export function FoodCalendar() {
               <div className="flex justify-center py-4">
                 <LoadingSpinner />
               </div>
+            ) : summary.error ? (
+              <EmptyState
+                title="Не удалось загрузить итог дня"
+                action={<Button onClick={() => { void summary.refetch(); }} variant="secondary">Попробовать снова</Button>}
+              />
             ) : daySummary ? (
               <div className="space-y-3 pt-4 border-t" style={{ borderColor: 'var(--border)' }}>
                 {/* Analysis */}

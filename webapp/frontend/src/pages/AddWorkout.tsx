@@ -52,9 +52,9 @@ export function AddWorkout() {
       await api.addWorkout(workoutName.trim(), Number(durationMinutes), intensity);
       haptic('success');
       navigate('/');
-    } catch (err: any) {
+    } catch (err) {
       console.error('Failed to add workout:', err);
-      setError(err?.message || 'Не удалось сохранить тренировку');
+      setError(err instanceof Error ? err.message : 'Не удалось сохранить тренировку');
       haptic('error');
     } finally {
       setIsLoading(false);

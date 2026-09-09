@@ -31,6 +31,9 @@ async function apiFetch<T>(
 ): Promise<T> {
   const initData = getInitData();
   const controller = new AbortController();
+  const abortFromCaller = () => controller.abort();
+  if (options.signal?.aborted) controller.abort();
+  else options.signal?.addEventListener('abort', abortFromCaller, { once: true });
   const needsLongRequest = /^\/(food\/(text|photo)|summary(?:\/|$)|weekly(?:\/|$)|payment\/check$)/.test(endpoint);
   const timeoutId = window.setTimeout(() => controller.abort(), needsLongRequest ? LONG_REQUEST_TIMEOUT_MS : API_TIMEOUT_MS);
 
@@ -57,7 +60,7 @@ async function apiFetch<T>(
     const response = await fetch(`${API_BASE}${endpoint}`, {
       ...options,
       headers,
-      signal: options.signal || controller.signal,
+      signal: controller.signal,
     });
 
     if (response.status === 403 && response.headers.get('X-Subscription-Status') === 'inactive') {
@@ -74,13 +77,14 @@ async function apiFetch<T>(
 
     // Keep the timeout active until the entire response body has arrived.
     return await response.json();
-  } catch (error: any) {
-    if (error?.name === 'AbortError') {
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError' && !options.signal?.aborted) {
       throw new ApiError('Сервер не ответил. Закройте окно и откройте раздел заново через бота.', 504);
     }
     throw error;
   } finally {
     window.clearTimeout(timeoutId);
+    options.signal?.removeEventListener('abort', abortFromCaller);
   }
 }
 
@@ -298,8 +302,8 @@ export const api = {
     }),
 
   // Food Tracker
-  getTodayFood: () =>
-    apiFetch<{ date: string; entries: FoodEntry[] }>('/food/today'),
+  getTodayFood: (signal?: AbortSignal) =>
+    apiFetch<{ date: string; entries: FoodEntry[] }>('/food/today', { signal }),
 
   getFoodEntry: (entryId: number) =>
     apiFetch<{ entry: FoodEntry }>(`/food/entry/${entryId}`),
@@ -388,12 +392,12 @@ export const api = {
       method: 'DELETE',
     }),
 
-  getFoodCalendar: (year: number, month: number) =>
+  getFoodCalendar: (year: number, month: number, signal?: AbortSignal) =>
     apiFetch<{
       year: number;
       month: number;
       days: Record<string, { count: number; entries: FoodEntry[] }>;
-    }>(`/food/calendar/${year}/${month}`),
+    }>(`/food/calendar/${year}/${month}`, { signal }),
 
   // Sleep Tracker
   getTodaySleep: () =>
@@ -434,8 +438,8 @@ export const api = {
       message?: string;
     }>('/summary/today'),
 
-  getSummaryByDate: (date: string) =>
-    apiFetch<{ date: string; summary: DailySummary | null }>(`/summary/${date}`),
+  getSummaryByDate: (date: string, signal?: AbortSignal) =>
+    apiFetch<{ date: string; summary: DailySummary | null }>(`/summary/${date}`, { signal }),
 
   recalculateSummary: () =>
     apiFetch<{ date: string; summary: DailySummary | null; recalculated?: boolean }>(
@@ -521,24 +525,24 @@ export const api = {
   getAdminStats: () =>
     apiFetch<Record<string, unknown>>('/admin/stats'),
 
-  getAdminOperations: () =>
-    apiFetch<AdminOperations>('/admin/operations'),
+  getAdminOperations: (signal?: AbortSignal) =>
+    apiFetch<AdminOperations>('/admin/operations', { signal }),
 
-  getAdminConsoleSummary: () =>
-    apiFetch<AdminConsoleSummary>('/admin/console/summary'),
+  getAdminConsoleSummary: (signal?: AbortSignal) =>
+    apiFetch<AdminConsoleSummary>('/admin/console/summary', { signal }),
 
-  getAdminUsers: (params: { status?: string; q?: string; limit?: number; offset?: number } = {}) => {
+  getAdminUsers: (params: { status?: string; q?: string; limit?: number; offset?: number } = {}, signal?: AbortSignal) => {
     const query = new URLSearchParams();
     if (params.status) query.set('status', params.status);
     if (params.q) query.set('q', params.q);
     if (params.limit) query.set('limit', String(params.limit));
     if (params.offset) query.set('offset', String(params.offset));
     const suffix = query.toString() ? `?${query.toString()}` : '';
-    return apiFetch<Paginated<AdminUserListItem>>(`/admin/users${suffix}`);
+    return apiFetch<Paginated<AdminUserListItem>>(`/admin/users${suffix}`, { signal });
   },
 
-  getAdminUserDetail: (userId: number) =>
-    apiFetch<AdminUserDetail>(`/admin/users/${userId}`),
+  getAdminUserDetail: (userId: number, signal?: AbortSignal) =>
+    apiFetch<AdminUserDetail>(`/admin/users/${userId}`, { signal }),
 
   extendAdminUserSubscription: (userId: number, days: number) =>
     apiFetch<{ ok: boolean; expires_at: number }>(`/admin/users/${userId}/extend`, {
@@ -568,24 +572,24 @@ export const api = {
       method: 'POST',
     }),
 
-  getAdminPayments: (params: { status?: string; q?: string; limit?: number; offset?: number } = {}) => {
+  getAdminPayments: (params: { status?: string; q?: string; limit?: number; offset?: number } = {}, signal?: AbortSignal) => {
     const query = new URLSearchParams();
     if (params.status) query.set('status', params.status);
     if (params.q) query.set('q', params.q);
     if (params.limit) query.set('limit', String(params.limit));
     if (params.offset) query.set('offset', String(params.offset));
     const suffix = query.toString() ? `?${query.toString()}` : '';
-    return apiFetch<Paginated<AdminPaymentItem>>(`/admin/payments${suffix}`);
+    return apiFetch<Paginated<AdminPaymentItem>>(`/admin/payments${suffix}`, { signal });
   },
 
-  getAdminEvents: (params: { state?: string; severity?: string; limit?: number; offset?: number } = {}) => {
+  getAdminEvents: (params: { state?: string; severity?: string; limit?: number; offset?: number } = {}, signal?: AbortSignal) => {
     const query = new URLSearchParams();
     if (params.state) query.set('state', params.state);
     if (params.severity) query.set('severity', params.severity);
     if (params.limit) query.set('limit', String(params.limit));
     if (params.offset) query.set('offset', String(params.offset));
     const suffix = query.toString() ? `?${query.toString()}` : '';
-    return apiFetch<Paginated<AdminEventItem>>(`/admin/events${suffix}`);
+    return apiFetch<Paginated<AdminEventItem>>(`/admin/events${suffix}`, { signal });
   },
 
   resolveAdminEvent: (eventId: number) =>
