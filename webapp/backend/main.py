@@ -2,6 +2,8 @@
 # FastAPI backend для Habit Tracker WebApp
 
 import os
+import asyncio
+import weakref
 import hashlib
 import hmac
 import json
@@ -10,7 +12,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 from urllib.parse import parse_qsl
 
-from fastapi import FastAPI, HTTPException, Depends, Header, UploadFile, File, Form, Request, Query
+from fastapi import FastAPI, HTTPException, Depends, Header, UploadFile, File, Form, Request, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -287,7 +289,12 @@ async def create_one_time_invite_link() -> str:
 
 
 async def send_access_link_or_alert(user_id: int, payment_id: str) -> str:
-    invite_link = await create_one_time_invite_link()
+    try:
+        invite_link = await create_one_time_invite_link()
+    except Exception as exc:
+        # Delivery failures must not undo or hide an already activated subscription.
+        print(f"Telegram invite creation failed for user {user_id}: {type(exc).__name__}")
+        invite_link = ""
     if invite_link:
         import httpx
         text = (
@@ -1143,22 +1150,37 @@ async def create_payment(
         )
 
 
+_payment_check_locks = weakref.WeakValueDictionary()
+
+
 @app.post("/api/payment/check")
 async def check_payment(
+    background_tasks: BackgroundTasks,
     user: Dict = Depends(get_current_user_optional)
 ):
     """Проверить статус платежа и активировать подписку если оплачен"""
     if not user:
         raise HTTPException(status_code=401, detail="Authentication required")
 
+    # A second tab or repeated click must see the first check's completed state.
+    lock = _payment_check_locks.setdefault(user['user_id'], asyncio.Lock())
+    async with lock:
+        return await _check_user_payment(background_tasks, user)
+
+
+async def _check_user_payment(background_tasks: BackgroundTasks, user: Dict):
     try:
         import requests
         from requests.auth import HTTPBasicAuth
 
         user_id = user['user_id']
+        subscription_active = await db.is_subscription_active(user_id)
 
         pending_payments = await db.get_pending_payments(user_id)
         if not pending_payments:
+            # A completed payment is no longer pending, but access remains active.
+            if subscription_active:
+                return {"status": "active", "subscription_active": True}
             return {
                 "status": "pending",
                 "subscription_active": False,
@@ -1168,7 +1190,8 @@ async def check_payment(
         found_payment = None
         for pending in pending_payments:
             payment_id = pending["payment_id"]
-            response = requests.get(
+            response = await asyncio.to_thread(
+                requests.get,
                 f"https://api.yookassa.ru/v3/payments/{payment_id}",
                 auth=HTTPBasicAuth(YOOKASSA_SHOP_ID, YOOKASSA_SECRET_KEY),
                 timeout=10
@@ -1184,17 +1207,18 @@ async def check_payment(
             if str(meta_user_id) != str(user_id):
                 continue
 
-            await db.update_payment_status(payment_id, item.get("status", "pending"))
             if item.get("status") == "succeeded":
                 found_payment = item
                 break
+            await db.update_payment_status(payment_id, item.get("status", "pending"))
 
         if found_payment:
             # Платёж найден! Активируем подписку
             payment_id = found_payment["id"]
             was_active = await db.is_subscription_active(user_id)
-            await db.update_payment_status(payment_id, "succeeded")
             new_expires = await db.activate_subscription(user_id, PAID_DAYS, GRACE_DAYS)
+            # Keep the payment retryable if activation fails before access is stored.
+            await db.update_payment_status(payment_id, "succeeded")
 
             # Сохраняем способ оплаты для автопродления
             pm = found_payment.get("payment_method", {})
@@ -1212,7 +1236,8 @@ async def check_payment(
 
             invite_link = ""
             if not was_active:
-                invite_link = await send_access_link_or_alert(user_id, payment_id)
+                # Telegram may be unavailable; return confirmed access immediately.
+                background_tasks.add_task(send_access_link_or_alert, user_id, payment_id)
 
             print(f"Subscription activated via webapp for user {user_id}, payment {payment_id}, expires_at={new_expires}")
 
@@ -1227,7 +1252,7 @@ async def check_payment(
         # Не нашли — подписка не активирована
         return {
             "status": "pending",
-            "subscription_active": False,
+            "subscription_active": subscription_active,
             "message": "Платёж ещё не обработан. Попробуйте через несколько секунд."
         }
 

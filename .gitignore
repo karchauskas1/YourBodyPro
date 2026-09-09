@@ -37,6 +37,8 @@ Thumbs.db
 # Temp
 tmp/
 temp/
+test-results/
+playwright-report/
 
 # Session files
 *.session

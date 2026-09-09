@@ -71,19 +71,30 @@ export function SubscriptionOnboarding() {
   const [isCreatingPayment, setIsCreatingPayment] = useState(false);
   const [isCheckingPayment, setIsCheckingPayment] = useState(false);
   const [paymentCreated, setPaymentCreated] = useState(false);
+  const [paymentMessage, setPaymentMessage] = useState<string | null>(null);
 
   // Проверяем платёж при возврате в приложение
   const checkPaymentStatus = useCallback(async () => {
     setIsCheckingPayment(true);
+    setPaymentMessage(null);
     try {
+      const subscription = await api.subscriptionStatus();
+      if (subscription.active) {
+        haptic('success');
+        window.location.reload();
+        return;
+      }
       const result = await api.checkPayment();
       if (result.subscription_active) {
         haptic('success');
         // Перезагружаем приложение чтобы обновить состояние
         window.location.reload();
+      } else {
+        setPaymentMessage('Оплата пока не подтверждена. Если вы уже оплатили, подождите немного и повторите проверку.');
       }
     } catch (error) {
       console.error('Payment check error:', error);
+      setPaymentMessage('Не удалось проверить оплату. Повторно оплачивать не нужно — попробуйте проверить ещё раз.');
     } finally {
       setIsCheckingPayment(false);
     }
@@ -140,7 +151,7 @@ export function SubscriptionOnboarding() {
 
   return (
     <Layout>
-      <div className="flex flex-col h-full pb-32">
+      <div className="flex flex-col h-full pb-60">
         {/* Sad cat intro (только на первом слайде) */}
         {currentSlide === 0 && (
           <div className="text-center mb-4 animate-in">
@@ -204,6 +215,11 @@ export function SubscriptionOnboarding() {
 
         {/* Fixed navigation at bottom */}
         <div className="fixed bottom-0 left-0 right-0 p-4 pb-8" style={{ background: 'var(--bg-primary)' }}>
+          {paymentMessage && (
+            <p role="status" className="text-sm text-center mb-3" style={{ color: 'var(--text-secondary)' }}>
+              {paymentMessage}
+            </p>
+          )}
           {/* Progress dots */}
           <div className="flex justify-center gap-2 mb-4">
             {slides.map((_, index) => (
@@ -248,18 +264,16 @@ export function SubscriptionOnboarding() {
               )}
             </Button>
 
-            {slide.isFinal && paymentCreated && (
-              <Button
-                onClick={checkPaymentStatus}
-                loading={isCheckingPayment}
-                variant="secondary"
-                className="flex-1"
-              >
-                <RefreshCw className="w-5 h-5 mr-2" />
-                {isCheckingPayment ? 'Проверяю...' : 'Я оплатил — проверить'}
-              </Button>
-            )}
           </div>
+          <Button
+            onClick={checkPaymentStatus}
+            loading={isCheckingPayment}
+            variant="secondary"
+            className="w-full mt-3"
+          >
+            <RefreshCw className="w-5 h-5 mr-2" />
+            {isCheckingPayment ? 'Проверяю...' : 'Я уже оплатил — проверить доступ'}
+          </Button>
         </div>
       </div>
     </Layout>

@@ -51,13 +51,27 @@ async function apiFetch<T>(
     headers['Content-Type'] = 'application/json';
   }
 
-  let response: Response;
   try {
-    response = await fetch(`${API_BASE}${endpoint}`, {
+    const response = await fetch(`${API_BASE}${endpoint}`, {
       ...options,
       headers,
       signal: options.signal || controller.signal,
     });
+
+    if (response.status === 403 && response.headers.get('X-Subscription-Status') === 'inactive') {
+      throw new SubscriptionRequiredError('Subscription required');
+    }
+
+    if (!response.ok) {
+      const error = await response.json().catch((cause: unknown) => {
+        if (controller.signal.aborted) throw cause;
+        return { detail: 'Unknown error' };
+      });
+      throw new ApiError(error.detail || 'Request failed', response.status);
+    }
+
+    // Keep the timeout active until the entire response body has arrived.
+    return await response.json();
   } catch (error: any) {
     if (error?.name === 'AbortError') {
       throw new ApiError('Сервер не ответил. Закройте окно и откройте раздел заново через бота.', 504);
@@ -66,21 +80,6 @@ async function apiFetch<T>(
   } finally {
     window.clearTimeout(timeoutId);
   }
-
-  // Handle subscription required
-  if (response.status === 403) {
-    const subscriptionStatus = response.headers.get('X-Subscription-Status');
-    if (subscriptionStatus === 'inactive') {
-      throw new SubscriptionRequiredError('Subscription required');
-    }
-  }
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-    throw new ApiError(error.detail || 'Request failed', response.status);
-  }
-
-  return response.json();
 }
 
 // Custom error classes

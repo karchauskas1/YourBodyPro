@@ -1,12 +1,12 @@
 // Main App component with routing
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useStore } from './store/useStore';
 import { useTelegram } from './hooks/useTelegram';
 import { useTheme } from './hooks/useTheme';
-import { api, SubscriptionRequiredError } from './api/client';
+import { api, ApiError, SubscriptionRequiredError } from './api/client';
 import { LoadingSpinner } from './components/Layout';
 
 // Pages
@@ -94,12 +94,14 @@ function AuthenticatedApp() {
   const { isAvailable } = useTelegram();
   const [authError, setAuthError] = useState<string | null>(null);
   const [loadingTooLong, setLoadingTooLong] = useState(false);
+  const authAttempt = useRef(0);
 
   // Initialize theme
   useTheme();
 
   useEffect(() => {
     initializeApp();
+    return () => { authAttempt.current += 1; };
   }, []);
 
   useEffect(() => {
@@ -116,12 +118,15 @@ function AuthenticatedApp() {
   }, [isLoading]);
 
   const initializeApp = async () => {
+    const attempt = ++authAttempt.current;
+    const isCurrentAttempt = () => attempt === authAttempt.current;
     setLoading(true);
     setAuthError(null);
     setLoadingTooLong(false);
     const isAdminPath = currentAppPath().startsWith('/admin');
     let adminAuthAttempted = false;
     const loadingWatchdogId = window.setTimeout(() => {
+      if (!isCurrentAttempt()) return;
       setAuthError('Загрузка заняла слишком много времени. Закройте окно и откройте приложение заново через бота.');
       setLoading(false);
     }, 20000);
@@ -131,6 +136,8 @@ function AuthenticatedApp() {
       adminAuthAttempted = true;
       try {
         const response = await api.adminMe();
+        if (!isCurrentAttempt()) return false;
+        setAuthError(null);
         setAuthenticated(true);
         setSubscriptionActive(false);
         setUser({
@@ -145,18 +152,13 @@ function AuthenticatedApp() {
       }
     };
 
-    // Debug: log Telegram WebApp info
-    console.log('Telegram WebApp available:', isAvailable);
-    console.log('window.Telegram:', window.Telegram);
-    console.log('WebApp object:', window.Telegram?.WebApp);
-    console.log('initData:', window.Telegram?.WebApp?.initData);
-    console.log('initDataUnsafe:', window.Telegram?.WebApp?.initDataUnsafe);
-
     try {
       await waitForTelegramWebApp();
+      if (!isCurrentAttempt()) return;
 
       if (isAdminPath) {
         const adminAuthenticated = await tryAdminAuth();
+        if (!isCurrentAttempt()) return;
         if (adminAuthenticated) {
           return;
         }
@@ -164,7 +166,9 @@ function AuthenticatedApp() {
 
       // Check subscription and get user data
       const response = await api.me();
+      if (!isCurrentAttempt()) return;
 
+      setAuthError(null);
       setAuthenticated(true);
       setSubscriptionActive(true);
       setUser({
@@ -177,8 +181,10 @@ function AuthenticatedApp() {
         setProfile(response.profile);
       }
     } catch (error) {
+      if (!isCurrentAttempt()) return;
       if (error instanceof SubscriptionRequiredError) {
         const adminAuthenticated = await tryAdminAuth();
+        if (!isCurrentAttempt()) return;
         if (!adminAuthenticated) {
           setSubscriptionActive(false);
           setAuthenticated(true);
@@ -187,26 +193,24 @@ function AuthenticatedApp() {
         console.error('Auth error:', error);
 
         const adminAuthenticated = await tryAdminAuth();
+        if (!isCurrentAttempt()) return;
         if (adminAuthenticated) {
           return;
         }
 
-        // Если есть Telegram данные, но авторизация не прошла - показываем онбординг
-        // (скорее всего проблема с подпиской, а не с auth)
-        if (window.Telegram?.WebApp?.initData) {
-          setSubscriptionActive(false);
-          setAuthenticated(true);
-        } else if (import.meta.env.DEV && !isAvailable) {
+        if (import.meta.env.DEV && !window.Telegram?.WebApp?.initData && !isAvailable) {
           // In development, allow access without Telegram
           setAuthenticated(true);
           setSubscriptionActive(true);
         } else {
-          setAuthError('Не удалось авторизоваться');
+          setAuthError(error instanceof ApiError && error.status === 401
+            ? 'Не удалось подтвердить вход через Telegram. Закройте окно и откройте приложение заново через бота.'
+            : 'Не удалось проверить подписку. Попробуйте ещё раз. Повторно оплачивать её не нужно.');
         }
       }
     } finally {
       window.clearTimeout(loadingWatchdogId);
-      setLoading(false);
+      if (isCurrentAttempt()) setLoading(false);
     }
   };
 
