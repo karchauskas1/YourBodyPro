@@ -4,6 +4,11 @@
   "framework": "vite",
   "redirects": [
     {
+      "source": "/",
+      "destination": "https://app.pasekaproduction.ru:9443/",
+      "permanent": false
+    },
+    {
       "source": "/:path*",
       "has": [{ "type": "header", "key": "accept", "value": ".*text/html.*" }],
       "destination": "https://app.pasekaproduction.ru:9443/:path*",
