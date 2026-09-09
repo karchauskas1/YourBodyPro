@@ -51,12 +51,27 @@ test('an already active subscriber opens the tracker without a paywall', async (
 
 test('an administrator can open the console without a paid subscription', async ({ page }) => {
   await mockApp(page);
+  const pageErrors: string[] = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
   await page.route('**/api/admin/me', route => route.fulfill({
     contentType: 'application/json', body: JSON.stringify({ admin: true, user: { user_id: 42 } }),
   }));
+  await page.route('**/api/admin/console/summary', route => route.fulfill({
+    contentType: 'application/json', body: JSON.stringify({
+      total_users: 0, active_users: 0, expiring_3d: 0, expired_users: 0, never_paid: 0,
+      pending_payments: 0, old_pending: 0, open_events: 0, critical_events: 0,
+      auto_renewal_enabled: 0, saved_cards: 0, renewal_failures: 0,
+    }),
+  }));
+  await page.route(/\/api\/admin\/(users|payments|events)(\?|$)/, route => route.fulfill({
+    contentType: 'application/json', body: JSON.stringify({ items: [], total: 0, limit: 50, offset: 0 }),
+  }));
   await page.goto('/admin/console');
+  await expect(page.getByText('Клиенты не найдены')).toBeVisible();
+  await expect(page.getByText('Данные обновляются...')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Админ-пульт' })).toBeVisible();
   await expect(page.getByText('Этот котик грустит')).toHaveCount(0);
+  expect(pageErrors).toEqual([]);
 });
 
 for (const failure of ['network', '500', '401', '403', 'invalid-json']) {
