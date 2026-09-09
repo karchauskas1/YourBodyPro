@@ -37,7 +37,12 @@ function sendError(res, statusCode, message) {
 }
 
 function requestInfo(req) {
-  const parsedUrl = new URL(req.url || '/', 'https://app.pasekaproduction.ru');
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(req.url || '/', 'https://app.pasekaproduction.ru');
+  } catch {
+    parsedUrl = new URL('https://app.pasekaproduction.ru/invalid-url');
+  }
   return {
     type: 'access',
     method: req.method,
@@ -109,7 +114,7 @@ function resolveStaticFile(requestPath) {
   const resolvedFile = path.resolve(requestedFile);
   const resolvedStaticDir = path.resolve(staticDir);
 
-  if (!resolvedFile.startsWith(resolvedStaticDir)) {
+  if (resolvedFile !== resolvedStaticDir && !resolvedFile.startsWith(resolvedStaticDir + path.sep)) {
     return null;
   }
 
@@ -220,17 +225,22 @@ const server = https.createServer(
       return;
     }
 
-    serveStatic(req, res);
+    try {
+      serveStatic(req, res);
+    } catch (error) {
+      sendError(res, error instanceof URIError || error instanceof TypeError ? 400 : 500, 'Invalid request');
+    }
   }
 );
 
 server.keepAliveTimeout = 1000;
 server.headersTimeout = 5000;
-server.requestTimeout = 15000;
-server.setTimeout(15000, (socket) => {
+// AI responses can take 45 seconds; allow the client's 60-second deadline to finish.
+server.requestTimeout = 75000;
+server.setTimeout(75000, (socket) => {
   socket.destroy();
 });
 
 server.listen(port, '0.0.0.0', () => {
-  console.log(`YourBody WebApp gateway listening on ${port}`);
+  console.log(`YourBody WebApp gateway listening on ${server.address().port}`);
 });

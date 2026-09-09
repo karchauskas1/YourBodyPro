@@ -10,7 +10,7 @@ YourBody PRO is a Telegram bot with WebApp for habit tracking (food, sleep, week
 - **Database**: SQLite - `bot.db`
 
 ## Deployment
-- **Frontend**: Vercel (auto-deploys from GitHub)
+- **Frontend**: VPS at `https://app.pasekaproduction.ru:9443` (HTTPS gateway), with nginx also serving port 443. The legacy Vercel hostname redirects navigation to the VPS.
 - **Backend**: VPS at `5.35.126.42` (systemd service `yourbody-api`)
 - **Bot**: VPS at `5.35.126.42` (systemd service `tg-bot`)
 - **Server path**: `/opt/yourbody-pro`
@@ -27,7 +27,8 @@ YourBody PRO is a Telegram bot with WebApp for habit tracking (food, sleep, week
    ```bash
    ssh root@5.35.126.42 "cd /opt/yourbody-pro && git pull origin main && systemctl restart tg-bot"
    ```
-4. **Frontend auto-deploys** via Vercel when pushed to GitHub
+4. **Frontend deployment**: run the browser tests/build locally, back up the server's `webapp/frontend/dist`, and copy the tested build there. GitHub/Vercel auto-deployment only updates the legacy redirect; it does not deploy the VPS build.
+5. **Outbound connections**: the API and habit workers need `OUTBOUND_PROXY_URL=socks5://127.0.0.1:1080` and the `httpx[socks]` dependency on this VPS. Direct Telegram connections time out; direct OpenRouter connections are rejected.
 
 ### Git Commit Format
 Always end commits with:

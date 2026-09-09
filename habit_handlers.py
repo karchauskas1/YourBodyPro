@@ -140,6 +140,9 @@ def register_habit_handlers(dp: Dispatcher):
 
             # Анализируем через LLM
             analysis = await analyze_food_photo(photo_base64, m.caption)
+            if analysis.get('error'):
+                await m.answer("Анализ фото временно недоступен. Попробуй отправить фото ещё раз чуть позже.")
+                return
 
             # Сохраняем в БД
             await habit_db.add_food_entry(
@@ -213,6 +216,9 @@ def register_habit_handlers(dp: Dispatcher):
         try:
             # Анализируем текст
             analysis = await analyze_food_text(m.text)
+            if analysis.get('error'):
+                await m.answer("Анализ еды временно недоступен. Попробуй отправить описание ещё раз чуть позже.")
+                return
 
             # Сохраняем в БД
             await habit_db.add_food_entry(
@@ -350,6 +356,9 @@ async def notification_scheduler(bot):
                             profile = await habit_db.get_user_profile(user_id)
                             user_goal = profile.get('goal', 'maintain') if profile else 'maintain'
                             summary = await generate_daily_summary(food_entries, user_goal)
+                            if summary.get('error'):
+                                log.warning("Daily summary unavailable for user %s", user_id)
+                                continue
                             await habit_db.save_daily_summary(user_id, user_today, summary)
 
                         keyboard = InlineKeyboardMarkup(inline_keyboard=[

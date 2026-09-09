@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 
+from http_client import outbound_client
 from database import db, HabitDB
 from llm_service import (
     analyze_food_photo,
@@ -254,24 +255,24 @@ async def get_admin_user(
 async def notify_admins(text: str):
     if not BOT_TOKEN or not ADMIN_IDS_SET:
         return
-    import httpx
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with outbound_client(timeout=10.0) as client:
         for admin_id in ADMIN_IDS_SET:
             try:
-                await client.post(
+                response = await client.post(
                     f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
                     json={"chat_id": admin_id, "text": text, "parse_mode": "HTML"},
                 )
+                if not response.json().get('ok'):
+                    print(f"Telegram rejected notification to admin {admin_id}")
             except Exception as e:
-                print(f"Failed to notify admin {admin_id}: {e}")
+                print(f"Failed to notify admin {admin_id}: {type(e).__name__}")
 
 
 async def create_one_time_invite_link() -> str:
     if not BOT_TOKEN or not GROUP_ID:
         return ""
-    import httpx
     expire_date = int(datetime.now(timezone.utc).timestamp()) + INVITE_TTL_HOURS * 3600
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with outbound_client(timeout=10.0) as client:
         response = await client.post(
             f"https://api.telegram.org/bot{BOT_TOKEN}/createChatInviteLink",
             json={
@@ -296,20 +297,13 @@ async def send_access_link_or_alert(user_id: int, payment_id: str) -> str:
         print(f"Telegram invite creation failed for user {user_id}: {type(exc).__name__}")
         invite_link = ""
     if invite_link:
-        import httpx
         text = (
             "Оплата прошла, спасибо! ✅\n"
             f"Вход в группу: {invite_link}\n"
             f"Ссылка одноразовая, действует {INVITE_TTL_HOURS} часов."
         )
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                await client.post(
-                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                    json={"chat_id": user_id, "text": text},
-                )
-        except Exception as e:
-            message = f"Оплата прошла, но не удалось отправить ссылку пользователю {user_id}: {e}"
+        if not await send_telegram_message(user_id, text):
+            message = f"Оплата прошла, но не удалось отправить ссылку пользователю {user_id}"
             await db.log_admin_event("access_dm_failed", message, "critical", user_id, payment_id)
             await notify_admins(f"⚠️ <b>Доступ требует ручной проверки</b>\n{message}")
         return invite_link
@@ -323,26 +317,24 @@ async def send_access_link_or_alert(user_id: int, payment_id: str) -> str:
 async def send_telegram_message(user_id: int, text: str) -> bool:
     if not BOT_TOKEN:
         return False
-    import httpx
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with outbound_client(timeout=10.0) as client:
             response = await client.post(
                 f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
                 json={"chat_id": user_id, "text": text, "parse_mode": "HTML"},
             )
         return bool(response.json().get("ok"))
     except Exception as e:
-        print(f"Telegram sendMessage failed for {user_id}: {e}")
+        print(f"Telegram sendMessage failed for {user_id}: {type(e).__name__}")
         return False
 
 
 async def remove_user_from_group(user_id: int) -> bool:
     if not BOT_TOKEN or not GROUP_ID:
         return False
-    import httpx
     until_date = int(datetime.now(timezone.utc).timestamp()) + 60
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with outbound_client(timeout=10.0) as client:
             ban_response = await client.post(
                 f"https://api.telegram.org/bot{BOT_TOKEN}/banChatMember",
                 json={"chat_id": GROUP_ID, "user_id": user_id, "until_date": until_date},
@@ -501,6 +493,11 @@ async def update_settings(
 
 # --- Food Tracker ---
 
+def require_analysis(result: Dict) -> Dict:
+    if result.get('error'):
+        raise HTTPException(status_code=503, detail="Анализ временно недоступен. Попробуйте ещё раз.")
+    return result
+
 @app.get("/api/food/today")
 async def get_today_food(user: Dict = Depends(get_current_user)):
     """Получить еду за сегодня"""
@@ -523,7 +520,7 @@ async def add_food_text(
 ):
     """Добавить еду текстом"""
     # Анализируем текст через LLM
-    analysis = await analyze_food_text(data.text)
+    analysis = require_analysis(await analyze_food_text(data.text))
 
     # Сохраняем в БД
     entry_id = await db.add_food_entry(
@@ -549,6 +546,14 @@ async def add_food_text(
     }
 
 
+@app.get("/api/food/entry/{entry_id}")
+async def get_food_entry(entry_id: int, user: Dict = Depends(get_current_user)):
+    entry = await db.get_food_entry(user['user_id'], entry_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    return {"entry": entry}
+
+
 @app.post("/api/food/photo")
 async def add_food_photo(
     photo: UploadFile = File(...),
@@ -571,13 +576,7 @@ async def add_food_photo(
         photo_base64 = base64.b64encode(contents).decode('utf-8')
 
         # Анализируем через Vision API
-        analysis = await analyze_food_photo(photo_base64, context or None)
-
-        # Проверяем на ошибку анализа
-        if analysis.get('error'):
-            print(f"LLM analysis error: {analysis.get('error')}")
-            # Всё равно сохраняем, но с базовым описанием
-            analysis['description'] = analysis.get('description', 'Фото еды')
+        analysis = require_analysis(await analyze_food_photo(photo_base64, context or None))
 
         # Примечание: photo_file_id будет заполнен при загрузке через Telegram бота
         # Здесь мы сохраняем без file_id (можно добавить локальное хранение)
@@ -815,6 +814,7 @@ async def get_today_summary(user: Dict = Depends(get_current_user)):
     )
 
     # Сохраняем
+    require_analysis(summary)
     await db.save_daily_summary(user['user_id'], today, summary)
 
     return {"date": today, "summary": summary, "cached": False}
@@ -853,6 +853,7 @@ async def get_summary_by_date(
             workouts=workouts,
             sleep_score=sleep_score
         )
+        require_analysis(summary)
         await db.save_daily_summary(user['user_id'], date, summary)
 
     return {"date": date, "summary": summary}
@@ -897,6 +898,7 @@ async def recalculate_summary(user: Dict = Depends(get_current_user)):
     )
 
     # Перезаписываем в БД
+    require_analysis(summary)
     await db.save_daily_summary(user['user_id'], today, summary)
 
     return {"date": today, "summary": summary, "recalculated": True}
@@ -927,7 +929,7 @@ async def get_current_weekly(user: Dict = Depends(get_current_user)):
     workout_data = await db.get_workout_entries_for_week(user['user_id'], week_start)
 
     # Проверяем, есть ли данные
-    has_data = any(food_data.values()) or any(v is not None for v in sleep_data.values())
+    has_data = any(food_data.values()) or any(v is not None for v in sleep_data.values()) or any(workout_data.values())
     if not has_data:
         return {
             "week_start": week_start,
@@ -952,6 +954,7 @@ async def get_current_weekly(user: Dict = Depends(get_current_user)):
     )
 
     # Сохраняем
+    require_analysis(summary)
     await db.save_weekly_summary(user['user_id'], week_start, summary)
 
     return {"week_start": week_start, "summary": summary, "cached": False}
@@ -970,7 +973,7 @@ async def get_weekly_by_date(
         sleep_data = await db.get_sleep_entries_for_week(user['user_id'], week_start)
         workout_data = await db.get_workout_entries_for_week(user['user_id'], week_start)
 
-        has_data = any(food_data.values()) or any(v is not None for v in sleep_data.values())
+        has_data = any(food_data.values()) or any(v is not None for v in sleep_data.values()) or any(workout_data.values())
         if not has_data:
             return {"week_start": week_start, "summary": None}
 
@@ -987,6 +990,7 @@ async def get_weekly_by_date(
             user_gender=user_gender,
             user_activity_level=user_activity_level
         )
+        require_analysis(summary)
         await db.save_weekly_summary(user['user_id'], week_start, summary)
 
     return {"week_start": week_start, "summary": summary}
@@ -1066,7 +1070,6 @@ async def create_payment(
             discount_pct = referral_reward["discount_percent"]
             discount_amount = MONTH_PRICE * discount_pct // 100
             actual_price = MONTH_PRICE - discount_amount
-            await db.use_referral_reward(referral_reward["id"])
             print(f"User {user_id} using referral discount {discount_pct}% — price {MONTH_PRICE} -> {actual_price}")
 
         payload = {
@@ -1113,7 +1116,8 @@ async def create_payment(
                     pass
             payload["receipt"] = receipt
 
-        response = requests.post(
+        response = await asyncio.to_thread(
+            requests.post,
             url,
             json=payload,
             headers=headers,
@@ -1139,6 +1143,8 @@ async def create_payment(
 
         # Сохраняем платёж в БД
         await db.save_payment(user_id, payment_data["id"], actual_price, payment_data.get("status", "pending"))
+        if referral_reward:
+            await db.use_referral_reward(referral_reward["id"])
 
         return {
             "payment_id": payment_data["id"],
@@ -1219,16 +1225,19 @@ async def _check_user_payment(background_tasks: BackgroundTasks, user: Dict):
         if found_payment:
             # Платёж найден! Активируем подписку
             payment_id = found_payment["id"]
-            was_active = await db.is_subscription_active(user_id)
-            new_expires = await db.activate_subscription(user_id, PAID_DAYS, GRACE_DAYS)
-            # Keep the payment retryable if activation fails before access is stored.
-            await db.update_payment_status(payment_id, "succeeded")
+            settlement = await db.settle_payment(user_id, payment_id, PAID_DAYS, GRACE_DAYS)
+            new_expires = settlement['expires_at']
+            if not settlement['applied']:
+                return {"status": "succeeded", "payment_id": payment_id,
+                        "subscription_active": new_expires > int(datetime.now(MSK).timestamp()), "expires_at": new_expires}
 
             # Сохраняем способ оплаты для автопродления
             pm = found_payment.get("payment_method", {})
             if pm.get("saved") and pm.get("id"):
-                await db.set_payment_method(user_id, pm["id"])
-                print(f"Payment method {pm['id']} saved for user {user_id}")
+                try:
+                    await db.set_payment_method(user_id, pm["id"])
+                except Exception as exc:
+                    await db.log_admin_event('payment_method_save_failed', type(exc).__name__, 'warning', user_id, payment_id)
 
             # Обработка реферала (mark_referral_paid создаёт reward автоматически)
             try:
@@ -1239,7 +1248,7 @@ async def _check_user_payment(background_tasks: BackgroundTasks, user: Dict):
                 print(f"Referral reward error for user {user_id}: {e}")
 
             invite_link = ""
-            if not was_active:
+            if not settlement['was_active']:
                 # Telegram may be unavailable; return confirmed access immediately.
                 background_tasks.add_task(send_access_link_or_alert, user_id, payment_id)
 
@@ -1632,8 +1641,7 @@ async def submit_feedback(request: Request, user: Dict = Depends(get_current_use
         f"{message}"
     )
     try:
-        import httpx
-        async with httpx.AsyncClient() as client:
+        async with outbound_client(timeout=10.0) as client:
             await client.post(
                 f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
                 json={

@@ -1,7 +1,7 @@
 # webapp/backend/llm_service.py
 # Интеграция с OpenRouter для анализа еды и генерации итогов
 
-import httpx
+from http_client import outbound_client
 import base64
 import json
 import os
@@ -113,7 +113,7 @@ async def analyze_food_photo(
     ]
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with outbound_client(timeout=30.0) as client:
             response = await client.post(
                 f"{OPENROUTER_BASE_URL}/chat/completions",
                 headers={
@@ -235,7 +235,7 @@ async def analyze_food_text(text: str) -> Dict[str, Any]:
 """
 
     try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
+        async with outbound_client(timeout=20.0) as client:
             response = await client.post(
                 f"{OPENROUTER_BASE_URL}/chat/completions",
                 headers={
@@ -496,7 +496,7 @@ async def generate_daily_summary(
 """
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with outbound_client(timeout=30.0) as client:
             response = await client.post(
                 f"{OPENROUTER_BASE_URL}/chat/completions",
                 headers={
@@ -707,7 +707,7 @@ async def generate_weekly_summary(
 """
 
     try:
-        async with httpx.AsyncClient(timeout=45.0) as client:
+        async with outbound_client(timeout=45.0) as client:
             response = await client.post(
                 f"{OPENROUTER_BASE_URL}/chat/completions",
                 headers={

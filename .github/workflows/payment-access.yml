@@ -1,4 +1,4 @@
-name: Payment and subscription regression tests
+name: Application regression tests
 
 on:
   push:
@@ -25,6 +25,7 @@ jobs:
           cache-dependency-path: webapp/frontend/package-lock.json
       - run: npm ci
         working-directory: webapp/frontend
+      - run: node --test webapp/gateway/server.test.cjs
       - run: npx playwright install --with-deps chromium
         working-directory: webapp/frontend
       - run: npm run test:e2e

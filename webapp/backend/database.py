@@ -6,6 +6,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict, Any
 import json
 import os
+from payment_settlement import settle_payment
 
 MSK = timezone(timedelta(hours=3))
 DB_PATH = os.getenv("DB_PATH", "../../bot.db")
@@ -301,6 +302,17 @@ class HabitDB:
             return False
         return row[0] > int(datetime.now(MSK).timestamp())
 
+    async def invalidate_summaries(self, user_id: int, date: str):
+        """Invalidate only summaries affected by a changed day's tracker data."""
+        await self.conn.execute(
+            "DELETE FROM daily_summaries WHERE user_id = ? AND summary_date = ?",
+            (user_id, date),
+        )
+        await self.conn.execute(
+            "DELETE FROM weekly_summaries WHERE user_id = ? AND week_start <= ? AND date(week_start, '+6 days') >= ?",
+            (user_id, date, date),
+        )
+
     # ============ Food Entries ============
 
     async def add_food_entry(
@@ -342,6 +354,7 @@ class HabitDB:
                 now_ts
             )
         )
+        await self.invalidate_summaries(user_id, entry_date)
         await self.conn.commit()
         return cur.lastrowid
 
@@ -369,7 +382,7 @@ class HabitDB:
 
         params.extend([user_id, entry_id])
 
-        await self.conn.execute(
+        cur = await self.conn.execute(
             f"""
             UPDATE food_entries
             SET {', '.join(updates)}
@@ -377,8 +390,16 @@ class HabitDB:
             """,
             tuple(params)
         )
+        updated = cur.rowcount > 0
+        if updated:
+            date_cursor = await self.conn.execute(
+                "SELECT entry_date FROM food_entries WHERE user_id = ? AND id = ?", (user_id, entry_id)
+            )
+            row = await date_cursor.fetchone()
+            if row:
+                await self.invalidate_summaries(user_id, row[0])
         await self.conn.commit()
-        return True
+        return updated
 
     async def get_food_entries_for_date(
         self, user_id: int, date: str
@@ -423,6 +444,16 @@ class HabitDB:
             result[date] = await self.get_food_entries_for_date(user_id, date)
         return result
 
+    async def get_food_entry(self, user_id: int, entry_id: int) -> Optional[Dict]:
+        cursor = await self.conn.execute(
+            'SELECT entry_date FROM food_entries WHERE user_id = ? AND id = ?', (user_id, entry_id)
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return None
+        entries = await self.get_food_entries_for_date(user_id, row[0])
+        return next((entry for entry in entries if entry['id'] == entry_id), None)
+
     async def update_food_entry_description(
         self,
         entry_id: int,
@@ -430,7 +461,7 @@ class HabitDB:
         description: str
     ) -> bool:
         """Обновить описание приема пищи"""
-        await self.conn.execute(
+        cur = await self.conn.execute(
             """
             UPDATE food_entries
             SET description = ?
@@ -438,14 +469,28 @@ class HabitDB:
             """,
             (description, user_id, entry_id)
         )
+        updated = cur.rowcount > 0
+        if updated:
+            date_cursor = await self.conn.execute(
+                "SELECT entry_date FROM food_entries WHERE user_id = ? AND id = ?", (user_id, entry_id)
+            )
+            row = await date_cursor.fetchone()
+            if row:
+                await self.invalidate_summaries(user_id, row[0])
         await self.conn.commit()
-        return True
+        return updated
 
     async def delete_food_entry(self, user_id: int, entry_id: int) -> bool:
+        date_cursor = await self.conn.execute(
+            "SELECT entry_date FROM food_entries WHERE user_id = ? AND id = ?", (user_id, entry_id)
+        )
+        row = await date_cursor.fetchone()
         cur = await self.conn.execute(
             "DELETE FROM food_entries WHERE id = ? AND user_id = ?",
             (entry_id, user_id)
         )
+        if row and cur.rowcount > 0:
+            await self.invalidate_summaries(user_id, row[0])
         await self.conn.commit()
         return cur.rowcount > 0
 
@@ -456,19 +501,17 @@ class HabitDB:
         now_ts = int(now.timestamp())
         entry_date = date or now.strftime('%Y-%m-%d')
 
-        try:
-            await self.conn.execute(
-                """
-                INSERT INTO sleep_entries (user_id, entry_date, score, created_at)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(user_id, entry_date) DO UPDATE SET score = excluded.score
-                """,
-                (user_id, entry_date, score, now_ts)
-            )
-            await self.conn.commit()
-            return True
-        except Exception:
-            return False
+        await self.conn.execute(
+            """
+            INSERT INTO sleep_entries (user_id, entry_date, score, created_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(user_id, entry_date) DO UPDATE SET score = excluded.score
+            """,
+            (user_id, entry_date, score, now_ts)
+        )
+        await self.invalidate_summaries(user_id, entry_date)
+        await self.conn.commit()
+        return True
 
     async def get_sleep_entry(self, user_id: int, date: str) -> Optional[int]:
         cur = await self.conn.execute(
@@ -520,6 +563,7 @@ class HabitDB:
             """,
             (user_id, entry_date, workout_name, duration_minutes, intensity, now_ts)
         )
+        await self.invalidate_summaries(user_id, entry_date)
         await self.conn.commit()
         return cur.lastrowid
 
@@ -549,10 +593,16 @@ class HabitDB:
 
     async def delete_workout_entry(self, user_id: int, workout_id: int) -> bool:
         """Удалить тренировку"""
+        date_cursor = await self.conn.execute(
+            "SELECT entry_date FROM workout_entries WHERE user_id = ? AND id = ?", (user_id, workout_id)
+        )
+        row = await date_cursor.fetchone()
         cur = await self.conn.execute(
             "DELETE FROM workout_entries WHERE id = ? AND user_id = ?",
             (workout_id, user_id)
         )
+        if row and cur.rowcount > 0:
+            await self.invalidate_summaries(user_id, row[0])
         await self.conn.commit()
         return cur.rowcount > 0
 
@@ -574,6 +624,8 @@ class HabitDB:
     async def save_daily_summary(
         self, user_id: int, date: str, content: Dict[str, Any]
     ):
+        if content.get('error'):
+            return
         now_ts = int(datetime.now(MSK).timestamp())
         await self.conn.execute(
             """
@@ -595,13 +647,16 @@ class HabitDB:
             (user_id, date)
         )
         row = await cur.fetchone()
-        return json.loads(row[0]) if row else None
+        content = json.loads(row[0]) if row else None
+        return content if content and not content.get('error') else None
 
     # ============ Weekly Summaries ============
 
     async def save_weekly_summary(
         self, user_id: int, week_start: str, content: Dict[str, Any]
     ):
+        if content.get('error'):
+            return
         now_ts = int(datetime.now(MSK).timestamp())
         await self.conn.execute(
             """
@@ -623,7 +678,8 @@ class HabitDB:
             (user_id, week_start)
         )
         row = await cur.fetchone()
-        return json.loads(row[0]) if row else None
+        content = json.loads(row[0]) if row else None
+        return content if content and not content.get('error') else None
 
     # ============ Helpers ============
 
@@ -712,20 +768,23 @@ class HabitDB:
         await self.conn.commit()
         return new_expires
 
+    async def settle_payment(self, user_id: int, payment_id: str, paid_days: int, grace_days: int):
+        return await settle_payment(self.db_path, user_id, payment_id, paid_days, grace_days)
+
     async def save_payment(self, user_id: int, payment_id: str, amount: int, status: str):
         """Сохранить платёж в таблицу payments"""
         now_ts = int(datetime.now(MSK).timestamp())
         await self.conn.execute(
-            """INSERT OR REPLACE INTO payments (user_id, payment_id, amount, status, created_at)
-               VALUES (?, ?, ?, ?, ?)""",
-            (user_id, payment_id, amount, status, now_ts)
+            """INSERT INTO payments (user_id, payment_id, amount, status, created_at)
+               SELECT ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM payments WHERE payment_id = ?)""",
+            (user_id, payment_id, amount, status, now_ts, payment_id)
         )
         await self.conn.commit()
 
     async def update_payment_status(self, payment_id: str, status: str):
         """Обновить статус платежа"""
         await self.conn.execute(
-            "UPDATE payments SET status = ? WHERE payment_id = ?",
+            "UPDATE payments SET status = ? WHERE payment_id = ? AND COALESCE(status, '') != 'succeeded'",
             (status, payment_id)
         )
         await self.conn.commit()

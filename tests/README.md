@@ -23,4 +23,12 @@ The workflow in `.github/workflows/payment-access.yml` runs both suites on pushe
 
 Covered failure paths include successful and repeated checks, concurrent checks for the same user, already-active subscriptions, pending/canceled payments, mismatched payment owners, provider outages, database activation failures, and Telegram invite timeouts. Browser checks cover active access, missing subscription, authentication and network failures, invalid responses, retry recovery, stale responses from an earlier sign-in attempt, and response bodies that never finish downloading.
 
-Payment checks are serialized per user within the API process. This matches the current single-process deployment; multiple API workers would require database-level coordination before relying on the same concurrency guarantee.
+Payment settlement uses a separate SQLite transaction shared by the bot and API. Tests cover independent concurrent connections, ownership, rollback, stale pending responses, duplicate saves, and retaining existing subscription days. Automatic renewal retries reuse the provider idempotency key for the same user and subscription period; they never make real charges in tests.
+
+`test_tracker_integration.py` runs real FastAPI routes against a temporary SQLite database initialized from the bot's actual schema. It covers profile/settings, food/photo/history/calendar, sleep, workouts, summaries, achievements, subscription guards, and admin reads. Only external AI, payment and messaging calls are replaced.
+
+`tracker-flows.spec.ts` opens all 16 main screens at a mobile viewport and checks runtime errors, layout overflow, historical food access, slow analysis, and retry after an AI failure. Its synthetic response fixtures come from the real routes; refresh them with `python tests/generate_browser_fixtures.py`.
+
+Run `node --test webapp/gateway/server.test.cjs` for the HTTPS gateway checks. They use temporary certificates and a local upstream, including a real 16-second response to catch the former 15-second disconnect.
+
+Production uses `OUTBOUND_PROXY_URL=socks5://127.0.0.1:1080` for Telegram and OpenRouter, matching the bot's existing network route. Install the backend requirements with SOCKS support. Keep that proxy unset for ordinary local development. HTTPX 0.25 and current HTTPX proxy argument names are both supported.

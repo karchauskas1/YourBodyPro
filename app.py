@@ -28,6 +28,7 @@ from aiogram.types import (
 from dotenv import load_dotenv
 from yookassa import Configuration, Payment
 from yookassa.domain.exceptions import ApiError
+from webapp.backend.payment_settlement import settle_payment, renewal_idempotency_key
 
 try:
     from aiogram.types import MenuButtonWebApp
@@ -473,14 +474,14 @@ class DB:
     async def save_payment(self, user_id: int, payment_id: str, amount: int, status: str):
         assert self.conn is not None
         await self.conn.execute(
-            "INSERT INTO payments(user_id, payment_id, amount, status, created_at) VALUES(?,?,?,?,?)",
-            (user_id, payment_id, amount, status, now_ts())
+            "INSERT INTO payments(user_id, payment_id, amount, status, created_at) SELECT ?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM payments WHERE payment_id=?)",
+            (user_id, payment_id, amount, status, now_ts(), payment_id)
         )
         await self.conn.commit()
 
     async def update_payment_status(self, payment_id: str, status: str):
         assert self.conn is not None
-        await self.conn.execute("UPDATE payments SET status=? WHERE payment_id=?", (status, payment_id))
+        await self.conn.execute("UPDATE payments SET status=? WHERE payment_id=? AND COALESCE(status, '') != 'succeeded'", (status, payment_id))
         await self.conn.commit()
 
     async def save_cancellation(self, user_id: int, reason: str):
@@ -1513,18 +1514,29 @@ async def pay_check(cb: CallbackQuery):
         )
         return
 
+    if str((payment.metadata or {}).get('user_id')) != str(cb.from_user.id):
+        await replace_with_text(cb, "Этот платёж относится к другому аккаунту. Откройте свою ссылку на оплату через /start.")
+        return
+
     status = payment.status
-    await db.update_payment_status(payment_id, status)
+    if status != "succeeded":
+        await db.update_payment_status(payment_id, status)
 
     # --- добавлено: получаем телефон пользователя
     phone = await db.get_user_phone(cb.from_user.id)
     phone_text = f"Чек придёт на номер: {phone}" if phone else ""
 
     if status == "succeeded":
-        desired_expires = add_days_ts(PAID_DAYS + GRACE_DAYS)
-        existing = await db.get_user(cb.from_user.id)
-        new_expires = max(desired_expires, existing.expires_at if existing else 0)
-        await db.upsert_user_meta(cb.from_user, expires_at=new_expires)
+        try:
+            settlement = await settle_payment(db.path, cb.from_user.id, payment_id, PAID_DAYS, GRACE_DAYS)
+        except Exception as exc:
+            log.error("Could not settle payment %s: %s", payment_id, type(exc).__name__)
+            await replace_with_text(cb, "Оплата подтверждена, но доступ пока не удалось сохранить. Нажмите «Проверить ещё раз». Повторно оплачивать не нужно.",
+                                    kb([kb_row(InlineKeyboardButton(text="Проверить ещё раз", callback_data=f"pay_check:{payment_id}"))]))
+            return
+        if not settlement['applied']:
+            await replace_with_text(cb, "Этот платёж уже учтён ✅. Проверить доступ и открыть приложение можно через /start.")
+            return
 
         # Сохраняем способ оплаты для автопродления
         auto_renewal_note = ""
@@ -1815,17 +1827,16 @@ async def auto_renewal_job():
                             "description": f"Автопродление подписки, user_id={uid}",
                             "metadata": {"user_id": str(uid), "type": "auto_renewal"},
                             **receipt_data
-                        })),
+                        }, idempotency_key=renewal_idempotency_key(uid, u['expires_at']))),
                         timeout=15
                     )
 
+                    await db.save_payment(uid, payment.id, MONTH_PRICE, 'pending' if payment.status == 'succeeded' else payment.status)
                     if payment.status == "succeeded":
-                        existing = await db.get_user(uid)
-                        base_expires = max(now_ts(), existing.expires_at if existing else 0)
-                        final_expires = base_expires + (PAID_DAYS + GRACE_DAYS) * 86400
-                        await db.set_user_expires(uid, final_expires, u.get("username"), u.get("full_name"))
+                        settlement = await settle_payment(db.path, uid, payment.id, PAID_DAYS, GRACE_DAYS)
                         await db.reset_auto_renewal_failures(uid)
-                        await db.save_payment(uid, payment.id, MONTH_PRICE, "succeeded")
+                        if not settlement['applied']:
+                            continue
                         log.info("auto_renewal succeeded for user %s, payment %s", uid, payment.id)
 
                         try:
@@ -1837,6 +1848,8 @@ async def auto_renewal_job():
                             )
                         except Exception:
                             pass
+                    elif payment.status in {'pending', 'waiting_for_capture'}:
+                        log.info("auto_renewal awaiting provider confirmation for user %s", uid)
                     else:
                         raise Exception(f"Payment status: {payment.status}")
 

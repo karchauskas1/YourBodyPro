@@ -13,6 +13,7 @@ import type {
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 const API_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS || 12000);
+const LONG_REQUEST_TIMEOUT_MS = 60000;
 
 // Get Telegram initData for authentication
 function getInitData(): string {
@@ -30,7 +31,8 @@ async function apiFetch<T>(
 ): Promise<T> {
   const initData = getInitData();
   const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  const needsLongRequest = /^\/(food\/(text|photo)|summary(?:\/|$)|weekly(?:\/|$)|payment\/check$)/.test(endpoint);
+  const timeoutId = window.setTimeout(() => controller.abort(), needsLongRequest ? LONG_REQUEST_TIMEOUT_MS : API_TIMEOUT_MS);
 
   const headers: Record<string, string> = {};
 
@@ -298,6 +300,9 @@ export const api = {
   // Food Tracker
   getTodayFood: () =>
     apiFetch<{ date: string; entries: FoodEntry[] }>('/food/today'),
+
+  getFoodEntry: (entryId: number) =>
+    apiFetch<{ entry: FoodEntry }>(`/food/entry/${entryId}`),
 
   getFoodByDate: (date: string) =>
     apiFetch<{ date: string; entries: FoodEntry[] }>(`/food/${date}`),

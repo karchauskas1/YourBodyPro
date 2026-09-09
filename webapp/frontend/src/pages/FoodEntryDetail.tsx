@@ -30,9 +30,8 @@ export function FoodEntryDetail() {
 
     try {
       setIsLoading(true);
-      // Получаем записи за сегодня и находим нужную
-      const response = await api.getTodayFood();
-      const foundEntry = response.entries.find(e => e.id === parseInt(id));
+      const response = await api.getFoodEntry(Number(id));
+      const foundEntry = response.entry;
 
       if (foundEntry) {
         setEntry(foundEntry);
@@ -40,7 +39,6 @@ export function FoodEntryDetail() {
         setHungerBefore(foundEntry.hunger_before);
         setFullnessAfter(foundEntry.fullness_after);
       } else {
-        // Если не нашли в сегодняшних, попробуем получить из календаря
         navigate('/');
       }
     } catch (err) {
@@ -319,4 +317,3 @@ export function FoodEntryDetail() {
 }
 
 export default FoodEntryDetail;
-

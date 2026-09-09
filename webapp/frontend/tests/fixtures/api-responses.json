@@ -1,0 +1,537 @@
+{
+  "/me": {
+    "user": {
+      "user_id": 42,
+      "username": null,
+      "first_name": null,
+      "last_name": null,
+      "language_code": null,
+      "auth_date": 1788978083
+    },
+    "profile": {
+      "user_id": 42,
+      "goal": "maintain",
+      "training_type": "own",
+      "activity_level": "medium",
+      "gender": "female",
+      "food_tracker_enabled": 1,
+      "sleep_tracker_enabled": 1,
+      "weekly_review_enabled": 1,
+      "evening_summary_time": "21:00",
+      "morning_question_time": "08:00",
+      "timezone_offset": 180,
+      "onboarding_completed": 1,
+      "created_at": 1788978083,
+      "updated_at": 1788978083
+    },
+    "subscription_active": true
+  },
+  "/dashboard": {
+    "date": "2026-09-09",
+    "profile": {
+      "user_id": 42,
+      "goal": "maintain",
+      "training_type": "own",
+      "activity_level": "medium",
+      "gender": "female",
+      "food_tracker_enabled": 1,
+      "sleep_tracker_enabled": 1,
+      "weekly_review_enabled": 1,
+      "evening_summary_time": "21:00",
+      "morning_question_time": "08:00",
+      "timezone_offset": 180,
+      "onboarding_completed": 1,
+      "created_at": 1788978083,
+      "updated_at": 1788978083
+    },
+    "streak": {
+      "current": 1,
+      "best": 1
+    },
+    "food": {
+      "entries": [
+        {
+          "id": 1,
+          "time": "13:15",
+          "description": "Курица с гречкой",
+          "photo_file_id": null,
+          "categories": {
+            "proteins": [
+              "Курица"
+            ],
+            "carbs": [
+              "Гречка"
+            ]
+          },
+          "raw_input": "Курица с гречкой",
+          "source": "webapp",
+          "hunger_before": 2,
+          "fullness_after": null,
+          "ate_without_gadgets": true
+        }
+      ],
+      "count": 1
+    },
+    "sleep": {
+      "score": null
+    },
+    "summary": {
+      "available": false,
+      "data": null
+    }
+  },
+  "/onboarding": {
+    "user_id": 42,
+    "goal": "maintain",
+    "training_type": "own",
+    "activity_level": "medium",
+    "gender": "female",
+    "food_tracker_enabled": 1,
+    "sleep_tracker_enabled": 1,
+    "weekly_review_enabled": 1,
+    "evening_summary_time": "21:00",
+    "morning_question_time": "08:00",
+    "timezone_offset": 180,
+    "onboarding_completed": 1,
+    "created_at": 1788978083,
+    "updated_at": 1788978083
+  },
+  "/food/today": {
+    "date": "2026-09-09",
+    "entries": [
+      {
+        "id": 1,
+        "time": "13:15",
+        "description": "Курица с гречкой",
+        "photo_file_id": null,
+        "categories": {
+          "proteins": [
+            "Курица"
+          ],
+          "carbs": [
+            "Гречка"
+          ]
+        },
+        "raw_input": "Курица с гречкой",
+        "source": "webapp",
+        "hunger_before": 2,
+        "fullness_after": null,
+        "ate_without_gadgets": true
+      }
+    ]
+  },
+  "/food/entry/1": {
+    "entry": {
+      "id": 1,
+      "time": "13:15",
+      "description": "Курица с гречкой",
+      "photo_file_id": null,
+      "categories": {
+        "proteins": [
+          "Курица"
+        ],
+        "carbs": [
+          "Гречка"
+        ]
+      },
+      "raw_input": "Курица с гречкой",
+      "source": "webapp",
+      "hunger_before": 2,
+      "fullness_after": null,
+      "ate_without_gadgets": true
+    }
+  },
+  "/sleep/today": {
+    "date": "2026-09-09",
+    "score": null
+  },
+  "/summary/today": {
+    "date": "2026-09-09",
+    "summary": {
+      "foods_list": [
+        "Курица",
+        "Гречка"
+      ],
+      "analysis": "Тестовый итог дня",
+      "balance_note": "Разнообразный рацион",
+      "suggestion": null
+    },
+    "cached": false
+  },
+  "/weekly/current": {
+    "week_start": "2026-09-07",
+    "summary": {
+      "week_overview": "Тестовый обзор недели",
+      "food_diversity_by_day": {},
+      "sleep_average": 4,
+      "sleep_food_patterns": [],
+      "timing_patterns": [],
+      "balance_insights": []
+    },
+    "cached": false
+  },
+  "/autorenewal": {
+    "payment_method_id": null,
+    "auto_renewal": false,
+    "auto_renewal_agreed_at": null,
+    "auto_renewal_failures": 0,
+    "enabled": false,
+    "has_payment_method": false,
+    "failures": 0
+  },
+  "/referral": {
+    "code": "JBLKTT",
+    "link": "https://t.me/YourBodyPet_bot?start=ref_JBLKTT",
+    "stats": {
+      "total_invited": 0,
+      "total_paid": 0,
+      "available_rewards": 0
+    }
+  },
+  "/achievements": {
+    "achievements": [
+      {
+        "id": "first_food",
+        "name": "Первый шаг",
+        "description": "Первый лог еды",
+        "icon": "1",
+        "unlocked": true,
+        "unlocked_at": "2026-09-09T18:21:23+00:00"
+      },
+      {
+        "id": "streak_7",
+        "name": "Неделя",
+        "description": "7-дневный стрик еды",
+        "icon": "7",
+        "unlocked": false
+      },
+      {
+        "id": "streak_30",
+        "name": "Месяц",
+        "description": "30-дневный стрик еды",
+        "icon": "30",
+        "unlocked": false
+      },
+      {
+        "id": "sleep_7",
+        "name": "Мастер сна",
+        "description": "7 дней сна подряд",
+        "icon": "Z",
+        "unlocked": false
+      },
+      {
+        "id": "workouts_10",
+        "name": "Спортсмен",
+        "description": "10 тренировок всего",
+        "icon": "10",
+        "unlocked": false
+      },
+      {
+        "id": "workouts_30",
+        "name": "Марафонец",
+        "description": "30 тренировок",
+        "icon": "30",
+        "unlocked": false
+      },
+      {
+        "id": "mindful_10",
+        "name": "Осознанность",
+        "description": "10 приёмов пищи без гаджетов",
+        "icon": "M",
+        "unlocked": false
+      },
+      {
+        "id": "weekly_first",
+        "name": "Полная картина",
+        "description": "Первый недельный обзор",
+        "icon": "W",
+        "unlocked": false
+      }
+    ]
+  },
+  "/streak": {
+    "current": 1,
+    "best": 1
+  },
+  "/food/calendar": {
+    "year": 2026,
+    "month": 9,
+    "days": {
+      "2026-09-09": {
+        "count": 1,
+        "entries": [
+          {
+            "id": 1,
+            "time": "13:15",
+            "description": "Курица с гречкой",
+            "photo_file_id": null,
+            "categories": {
+              "proteins": [
+                "Курица"
+              ],
+              "carbs": [
+                "Гречка"
+              ]
+            },
+            "raw_input": "Курица с гречкой",
+            "source": "webapp",
+            "hunger_before": 2,
+            "fullness_after": null,
+            "ate_without_gadgets": true
+          }
+        ]
+      }
+    }
+  },
+  "/admin/me": {
+    "admin": true,
+    "user": {
+      "user_id": 99,
+      "username": null,
+      "first_name": null,
+      "last_name": null,
+      "language_code": null,
+      "auth_date": 1788978083
+    }
+  },
+  "/admin/stats": {
+    "users": {
+      "total": 4,
+      "active": 2,
+      "expired": 2,
+      "new_7d": 0,
+      "new_30d": 0
+    },
+    "revenue": {
+      "month": 0,
+      "total": 0
+    },
+    "conversion": {
+      "paid_total": 2,
+      "started_total": 4,
+      "rate": 0.5
+    },
+    "churn": {
+      "reasons": {}
+    },
+    "engagement": {
+      "avg_food_per_day": 1.0,
+      "features": {
+        "food_tracker_pct": 1.0,
+        "sleep_tracker_pct": 1.0,
+        "weekly_review_pct": 1.0
+      }
+    },
+    "retention": {
+      "auto_renewal_count": 0,
+      "auto_renewal_pct": 0.0
+    },
+    "charts": {
+      "daily_users": [],
+      "daily_revenue": []
+    },
+    "referrals": {
+      "total_referrals": 0,
+      "total_paid": 0,
+      "total_rewards": 0
+    }
+  },
+  "/admin/operations": {
+    "access": {
+      "active": 2,
+      "expired_unprocessed": 1,
+      "expiring": {
+        "within_1_days": 2,
+        "within_2_days": 2,
+        "within_3_days": 2
+      },
+      "open_events": 0
+    },
+    "payments": {
+      "succeeded_today": 0,
+      "revenue_today": 0,
+      "pending_total": 0,
+      "pending_old": 0,
+      "recent_succeeded": [],
+      "old_pending": []
+    },
+    "cancellations": {
+      "today": 0,
+      "reasons": {},
+      "recent": []
+    },
+    "retention": {
+      "auto_renewal_enabled": 0,
+      "saved_payment_methods": 0,
+      "auto_renewal_disabled_with_card": 0,
+      "auto_renewal_failures": 0,
+      "renewal_disabled_total": 0,
+      "cards_unlinked_total": 0,
+      "immediate_cancel_total": 0
+    },
+    "events": []
+  },
+  "/admin/console/summary": {
+    "total_users": 4,
+    "active_users": 2,
+    "expiring_3d": 2,
+    "expired_users": 1,
+    "never_paid": 1,
+    "pending_payments": 0,
+    "old_pending": 0,
+    "open_events": 0,
+    "critical_events": 0,
+    "auto_renewal_enabled": 0,
+    "saved_cards": 0,
+    "renewal_failures": 0
+  },
+  "/admin/users": {
+    "items": [
+      {
+        "user_id": 42,
+        "username": "",
+        "full_name": "",
+        "phone": "",
+        "expires_at": 1789064483,
+        "status": "expiring",
+        "days_left": 1,
+        "auto_renewal": false,
+        "has_payment_method": false,
+        "auto_renewal_failures": 0,
+        "auto_renewal_agreed_at": null,
+        "payments_count": 0,
+        "paid_total": 0,
+        "last_payment_status": "",
+        "last_payment_at": null,
+        "last_cancel_reason": "",
+        "last_cancel_at": null,
+        "open_events": 0
+      },
+      {
+        "user_id": 43,
+        "username": "",
+        "full_name": "",
+        "phone": "",
+        "expires_at": 1789064483,
+        "status": "expiring",
+        "days_left": 1,
+        "auto_renewal": false,
+        "has_payment_method": false,
+        "auto_renewal_failures": 0,
+        "auto_renewal_agreed_at": null,
+        "payments_count": 0,
+        "paid_total": 0,
+        "last_payment_status": "",
+        "last_payment_at": null,
+        "last_cancel_reason": "",
+        "last_cancel_at": null,
+        "open_events": 0
+      },
+      {
+        "user_id": 44,
+        "username": "",
+        "full_name": "",
+        "phone": "",
+        "expires_at": 1,
+        "status": "expired",
+        "days_left": 0,
+        "auto_renewal": false,
+        "has_payment_method": false,
+        "auto_renewal_failures": 0,
+        "auto_renewal_agreed_at": null,
+        "payments_count": 0,
+        "paid_total": 0,
+        "last_payment_status": "",
+        "last_payment_at": null,
+        "last_cancel_reason": "",
+        "last_cancel_at": null,
+        "open_events": 0
+      },
+      {
+        "user_id": 99,
+        "username": "",
+        "full_name": "",
+        "phone": "",
+        "expires_at": 0,
+        "status": "no_access",
+        "days_left": 0,
+        "auto_renewal": false,
+        "has_payment_method": false,
+        "auto_renewal_failures": 0,
+        "auto_renewal_agreed_at": null,
+        "payments_count": 0,
+        "paid_total": 0,
+        "last_payment_status": "",
+        "last_payment_at": null,
+        "last_cancel_reason": "",
+        "last_cancel_at": null,
+        "open_events": 0
+      }
+    ],
+    "total": 4,
+    "limit": 50,
+    "offset": 0
+  },
+  "/admin/users/42": {
+    "user": {
+      "user_id": 42,
+      "username": "",
+      "full_name": "",
+      "phone": "",
+      "expires_at": 1789064483,
+      "status": "expiring",
+      "days_left": 1,
+      "payment_method_id": "",
+      "has_payment_method": false,
+      "auto_renewal": false,
+      "auto_renewal_agreed_at": null,
+      "auto_renewal_failures": 0,
+      "referral_code": "JBLKTT",
+      "payments_count": 0,
+      "paid_total": 0,
+      "last_payment_status": "",
+      "last_payment_at": null,
+      "last_cancel_reason": "",
+      "last_cancel_at": null,
+      "open_events": 0
+    },
+    "profile": {
+      "user_id": 42,
+      "goal": "maintain",
+      "training_type": "own",
+      "activity_level": "medium",
+      "gender": "female",
+      "food_tracker_enabled": 1,
+      "sleep_tracker_enabled": 1,
+      "weekly_review_enabled": 1,
+      "evening_summary_time": "21:00",
+      "morning_question_time": "08:00",
+      "timezone_offset": 180,
+      "onboarding_completed": 1,
+      "created_at": 1788978083,
+      "updated_at": 1788978083
+    },
+    "payments": [],
+    "cancellations": [],
+    "events": [],
+    "activity": {
+      "food_entries": 1,
+      "sleep_entries": 0,
+      "workout_entries": 0,
+      "last_food_at": 1788978083,
+      "last_workout_at": null
+    }
+  },
+  "/admin/payments": {
+    "items": [],
+    "total": 0,
+    "limit": 50,
+    "offset": 0
+  },
+  "/admin/events": {
+    "items": [],
+    "total": 0,
+    "limit": 50,
+    "offset": 0
+  }
+}

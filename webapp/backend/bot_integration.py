@@ -8,7 +8,7 @@ import base64
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
-import httpx
+from http_client import outbound_client
 
 # Загружаем переменные окружения
 from dotenv import load_dotenv
@@ -60,7 +60,7 @@ class BotIntegration:
     ) -> bool:
         """Отправить сообщение пользователю"""
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with outbound_client(timeout=10.0) as client:
                 payload = {
                     "chat_id": chat_id,
                     "text": text,
@@ -82,7 +82,7 @@ class BotIntegration:
     async def download_file(self, file_id: str) -> Optional[bytes]:
         """Скачать файл по file_id"""
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with outbound_client(timeout=30.0) as client:
                 # Получаем путь к файлу
                 response = await client.get(
                     f"{self.bot_api_url}/getFile",

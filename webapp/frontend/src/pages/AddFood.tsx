@@ -17,12 +17,12 @@ export function AddFood() {
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
 
-  // Текущее время по умолчанию (округленное до ближайших 15 минут)
+  // Округляем вниз, чтобы запись не попадала в будущее или предыдущий час.
   const getCurrentTime = () => {
     const now = new Date();
     const hours = now.getHours();
-    const minutes = Math.round(now.getMinutes() / 15) * 15;
-    return `${hours.toString().padStart(2, '0')}:${minutes === 60 ? '00' : minutes.toString().padStart(2, '0')}`;
+    const minutes = Math.floor(now.getMinutes() / 15) * 15;
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
   };
 
   const [mode, setMode] = useState<InputMode>('choice');
@@ -673,4 +673,3 @@ export function AddFood() {
 }
 
 export default AddFood;
-
