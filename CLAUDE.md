@@ -29,6 +29,7 @@ YourBody PRO is a Telegram bot with WebApp for habit tracking (food, sleep, week
    ```
 4. **Frontend deployment**: run the browser tests/build locally, back up the server's `webapp/frontend/dist`, and copy the tested build there. GitHub/Vercel auto-deployment only updates the legacy redirect; it does not deploy the VPS build.
 5. **Outbound connections**: the API and habit workers need `OUTBOUND_PROXY_URL=socks5://127.0.0.1:1080` and the `httpx[socks]` dependency on this VPS. Direct Telegram connections time out; direct OpenRouter connections are rejected.
+6. **Post-deployment check**: run `python tools/check_webapp_entrypoints.py` to check the actual frontend assets through every supported entrypoint. The API hostname's old `/yourbody-app/` nginx locations include `webapp/gateway/nginx-legacy-app.conf`.
 
 ### Git Commit Format
 Always end commits with:
