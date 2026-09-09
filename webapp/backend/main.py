@@ -388,7 +388,10 @@ app = FastAPI(
 # CORS для Telegram WebApp
 ALLOWED_ORIGINS = [
     "https://app.pasekaproduction.ru",
+    "https://app.pasekaproduction.ru:9443",
     "https://api.pasekaproduction.ru",
+    # Existing Telegram windows may still run the old hosted bundle.
+    "https://your-body-pro.vercel.app",
     "http://localhost:3000",
     "http://localhost:5173",
 ]
@@ -399,6 +402,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Subscription-Status"],
 )
 
 
