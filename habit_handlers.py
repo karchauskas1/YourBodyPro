@@ -4,7 +4,7 @@
 # Для интеграции добавьте в app.py:
 # 1. В начало файла: from habit_handlers import register_habit_handlers, init_habit_db
 # 2. В on_startup(): await init_habit_db()
-# 3. После создания dp: register_habit_handlers(dp)
+# 3. После создания dp: register_habit_handlers(dp, db, is_active)
 
 import asyncio
 import base64
@@ -58,7 +58,7 @@ async def init_habit_db():
     log.info("Habit tracker database initialized")
 
 
-def register_habit_handlers(dp: Dispatcher):
+def register_habit_handlers(dp: Dispatcher, main_db, is_active):
     """Регистрация обработчиков для habit tracker"""
 
     # ============ Команды ============
@@ -66,9 +66,6 @@ def register_habit_handlers(dp: Dispatcher):
     @dp.message(Command("habits"))
     async def habits_command(m: Message):
         """Открыть веб-приложение ассистента привычек"""
-        # Проверяем подписку (используем существующую функцию из app.py)
-        from app import db as main_db, is_active
-
         user = await main_db.get_user(m.from_user.id)
         if not user or not is_active(user.expires_at):
             await m.answer(
@@ -420,5 +417,6 @@ async def notification_scheduler(bot):
 
 def start_notification_scheduler(bot):
     """Запустить планировщик уведомлений"""
-    asyncio.create_task(notification_scheduler(bot))
+    task = asyncio.create_task(notification_scheduler(bot))
     log.info("Notification scheduler task created")
+    return task

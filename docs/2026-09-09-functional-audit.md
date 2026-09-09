@@ -16,10 +16,12 @@ The audit covered the bot, FastAPI, SQLite, the mobile web app, HTTPS gateway, o
 - Creating a payment blocked the API event loop. The provider request now runs off that loop. A provider creation failure no longer consumes a referral discount.
 - Rejected Telegram messages could be treated as delivered. Delivery failure is now recorded without reverting paid access.
 - Malformed URL encoding could crash the HTTPS gateway. It now returns a controlled error and continues serving requests.
+- The bot did not close SQLite connections during shutdown and needed systemd's forced stop timeout. Shutdown now cancels owned workers and closes both database connections.
+- The `/habits` command imported a second copy of `app.py` when the bot was started as a script. It now receives the running bot's database explicitly.
 
 ## Validation
 
-- 57 Python tests, including real FastAPI/SQLite integration and mocked bot/payment provider scenarios.
+- 60 Python tests, including real FastAPI/SQLite integration, graceful shutdown and mocked bot/payment provider scenarios.
 - 34 mobile Chromium browser scenarios, including all 16 main screens, historical food access, payment recovery, slow AI responses and retries.
 - 3 HTTPS gateway tests, including a real 16-second upstream response.
 - Production read-only checks: all 17 selected user/admin API routes returned HTTP 200, SQLite `quick_check` returned `ok`, all four application services were running, and no successful payments from the preceding day lacked active access.

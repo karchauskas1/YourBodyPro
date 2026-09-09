@@ -2502,19 +2502,20 @@ except ImportError as e:
     log.warning("Habit tracker module not available: %s", e)
 
 # ---- Startup ----
+_background_tasks = []
+
+
 async def on_startup():
     await db.connect()
     await db.init_schema()
-    asyncio.create_task(periodic_checks())
-    asyncio.create_task(auto_clean_expired())
-    asyncio.create_task(reminder_notifier())
-    asyncio.create_task(auto_renewal_job())
+    for job in [periodic_checks, auto_clean_expired, reminder_notifier, auto_renewal_job]:
+        _background_tasks.append(asyncio.create_task(job()))
 
     # Инициализируем habit tracker если доступен
     if HABIT_TRACKER_ENABLED:
         try:
             await init_habit_db()
-            start_notification_scheduler(bot)
+            _background_tasks.append(start_notification_scheduler(bot))
             log.info("Habit tracker initialized")
         except Exception as e:
             log.error("Failed to initialize habit tracker: %s", e)
@@ -2559,12 +2560,26 @@ async def on_startup():
         except Exception as e:
             log.warning("set_chat_menu_button failed: %s", e)
 
+async def on_shutdown():
+    for task in _background_tasks:
+        task.cancel()
+    await asyncio.gather(*_background_tasks, return_exceptions=True)
+    _background_tasks.clear()
+    if HABIT_TRACKER_ENABLED:
+        from habit_handlers import habit_db
+        if habit_db:
+            await habit_db.close()
+    if db.conn:
+        await db.conn.close()
+
+
 def main():
     # Регистрируем обработчики habit tracker
     if HABIT_TRACKER_ENABLED:
-        register_habit_handlers(dp)
+        register_habit_handlers(dp, db, is_active)
 
     dp.startup.register(on_startup)
+    dp.shutdown.register(on_shutdown)
     dp.run_polling(bot)
 
 if __name__ == "__main__":
